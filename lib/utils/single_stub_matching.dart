@@ -53,7 +53,7 @@ class SingleStubMatchingCalculator {
     commonSteps.add(r'f = ' + toLatexScientific(f) + r' \text{ Hz, } Z_0 = ' + outputNum(z0) + r'\;\Omega');
     commonSteps.add(r'\lambda = ' + outputNum(lambdaMm, precision: 2) + r'\;\mathrm{mm}');
 
-    Complex zS = data.zOriginal ?? (data.gammaOriginal != null ? gammaToZ(data.gammaOriginal!, z0) : Complex(50, 0));
+    Complex zS = data.zInitial ?? (data.gammaInitial != null ? gammaToZ(data.gammaInitial!, z0) : Complex(50, 0));
     Complex zL = data.zTarget ?? (data.gammaTarget != null ? gammaToZ(data.gammaTarget!, z0) : Complex(50, 0));
 
     // ================= [NEW 1] 直通检测 (Already Matched) =================
@@ -96,7 +96,7 @@ class SingleStubMatchingCalculator {
     Complex yL = Complex(z0, 0) / zL;
 
     commonSteps.add(r'\textbf{Step 1. Normalize Admittances:}');
-    commonSteps.add(r'y_{ori} = ' + outputNum(yS, precision: 3));
+    commonSteps.add(r'y_{init} = ' + outputNum(yS, precision: 3));
     commonSteps.add(r'y_{tar} = ' + outputNum(yL, precision: 3));
 
     // ================= 2. 几何求解 (找交点) =================

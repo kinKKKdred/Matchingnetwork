@@ -16,19 +16,25 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final _formKey = GlobalKey<FormState>();
-  //输入板块：Zoriginal，Ztarget及其实部虚部
-  final zOriginalReController = TextEditingController(text: "30.0");
-  final zOriginalImController = TextEditingController(text: "40.0");
+
+  // ==================== Built-in test examples (Initial -> Target) ====================
+  // Used by the "NEXT EXAMPLE" button to auto-fill inputs.
+  // NOTE: This project matches Z_initial -> Z_target (not necessarily to the Smith chart center).
+  late final List<_TestExample> _testExamples;
+  int _exampleIndex = 0;
+  //输入板块：Zinitial，Ztarget及其实部虚部
+  final zInitialReController = TextEditingController(text: "30.0");
+  final zInitialImController = TextEditingController(text: "40.0");
   final zTargetReController = TextEditingController(text: "50.0");
   final zTargetImController = TextEditingController(text: "-20.0");
-  //输入板块，Γoriginal，Γtarget及其实部虚部
-  final gammaOriginalReController = TextEditingController();
-  final gammaOriginalImController = TextEditingController();
+  //输入板块，Γinitial，Γtarget及其实部虚部
+  final gammaInitialReController = TextEditingController();
+  final gammaInitialImController = TextEditingController();
   final gammaTargetReController = TextEditingController();
   final gammaTargetImController = TextEditingController();
-  //输入板块：Γoriginal，Γtarget的幅度和角度输入模式
-  final gammaOriginalMagController = TextEditingController();
-  final gammaOriginalAngleController = TextEditingController();
+  //输入板块：Γinitial，Γtarget的幅度和角度输入模式
+  final gammaInitialMagController = TextEditingController();
+  final gammaInitialAngleController = TextEditingController();
   final gammaTargetMagController = TextEditingController();
   final gammaTargetAngleController = TextEditingController();
   //输入板块：频率f和特征阻抗Z0
@@ -46,22 +52,23 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    // 界面加载时，根据默认的 Z 值 (30+40j)，自动算出 Gamma 填进去
-    _syncFromZInputFields();
+    _testExamples = _buildTestExamples();
+    // Load the first example by default, and sync Γ fields accordingly.
+    _applyTestExample(0, sync: true);
   }
 
   @override
   void dispose() {
-    zOriginalReController.dispose();
-    zOriginalImController.dispose();
+    zInitialReController.dispose();
+    zInitialImController.dispose();
     zTargetReController.dispose();
     zTargetImController.dispose();
-    gammaOriginalReController.dispose();
-    gammaOriginalImController.dispose();
+    gammaInitialReController.dispose();
+    gammaInitialImController.dispose();
     gammaTargetReController.dispose();
     gammaTargetImController.dispose();
-    gammaOriginalMagController.dispose();
-    gammaOriginalAngleController.dispose();
+    gammaInitialMagController.dispose();
+    gammaInitialAngleController.dispose();
     gammaTargetMagController.dispose();
     gammaTargetAngleController.dispose();
     fController.dispose();
@@ -76,27 +83,104 @@ class _HomePageState extends State<HomePage> {
     return Complex(real, imag);
   }
 
+  String _prettyNum(double v) {
+    if ((v - v.roundToDouble()).abs() < 1e-12) return v.round().toString();
+    String s = v.toStringAsFixed(6);
+    while (s.contains('.') && s.endsWith('0')) {
+      s = s.substring(0, s.length - 1);
+    }
+    if (s.endsWith('.')) s = s.substring(0, s.length - 1);
+    return s;
+  }
+
+  List<_TestExample> _buildTestExamples() {
+    // Default: Z0 = 50Ω, f = 2.45 GHz. You can edit these examples here.
+    return [
+      _TestExample(
+        name: 'Example 1: (25+15j) → (75−10j) Ω',
+        frequencyText: '2.45e9',
+        z0Text: '50',
+        zInitial: Complex(25, 15),
+        zTarget: Complex(75, -10),
+      ),
+      _TestExample(
+        name: 'Example 2: (100−30j) → (20+10j) Ω',
+        frequencyText: '2.45e9',
+        z0Text: '50',
+        zInitial: Complex(100, -30),
+        zTarget: Complex(20, 10),
+      ),
+      _TestExample(
+        name: 'Example 3: (30−40j) → (10−20j) Ω',
+        frequencyText: '2.45e9',
+        z0Text: '50',
+        zInitial: Complex(30, -40),
+        zTarget: Complex(10, -20),
+      ),
+      _TestExample(
+        name: 'Example 4: (200+50j) → (35+0j) Ω',
+        frequencyText: '2.45e9',
+        z0Text: '50',
+        zInitial: Complex(200, 50),
+        zTarget: Complex(35, 0),
+      ),
+      _TestExample(
+        name: 'Example 5: (10+0j) → (120+60j) Ω',
+        frequencyText: '2.45e9',
+        z0Text: '50',
+        zInitial: Complex(10, 0),
+        zTarget: Complex(120, 60),
+      ),
+      _TestExample(
+        name: 'Example 6: (50+50j) → (30−10j) Ω',
+        frequencyText: '2.45e9',
+        z0Text: '50',
+        zInitial: Complex(50, 50),
+        zTarget: Complex(30, -10),
+      ),
+    ];
+  }
+
+  void _applyTestExample(int index, {bool sync = true}) {
+    final int idx = index % _testExamples.length;
+    final ex = _testExamples[idx];
+    setState(() {
+      _exampleIndex = idx;
+      // System parameters
+      fController.text = ex.frequencyText;
+      z0Controller.text = ex.z0Text;
+      // Z fields
+      zInitialReController.text = _prettyNum(ex.zInitial.real);
+      zInitialImController.text = _prettyNum(ex.zInitial.imaginary);
+      zTargetReController.text = _prettyNum(ex.zTarget.real);
+      zTargetImController.text = _prettyNum(ex.zTarget.imaginary);
+    });
+    if (sync) {
+      _syncFromZInputFields();
+    }
+  }
+
   //Z输入到Γ输入的实时转化
   void _syncFromZInputFields() {
     //防止出发死循环
     if (_isSyncing) return;
     _isSyncing = true;
     try {
-      final z = parseFromFields(zOriginalReController.text, zOriginalImController.text);
+      final z = parseFromFields(zInitialReController.text, zInitialImController.text);
       final z2 = parseFromFields(zTargetReController.text, zTargetImController.text);
       double z0 = double.tryParse(z0Controller.text) ?? 50.0;
       //用 RF 标准公式把 Z 转成 Γ
       final gamma = zToGamma(z, z0);
       final gamma2 = zToGamma(z2, z0);
       //把Γ的直角坐标写回输入框并保留四位小数
-      gammaOriginalReController.text = gamma.real.toStringAsFixed(4);
-      gammaOriginalImController.text = gamma.imaginary.toStringAsFixed(4);
+      gammaInitialReController.text = gamma.real.toStringAsFixed(4);
+      gammaInitialImController.text = gamma.imaginary.toStringAsFixed(4);
       gammaTargetReController.text = gamma2.real.toStringAsFixed(4);
       gammaTargetImController.text = gamma2.imaginary.toStringAsFixed(4);
       //利用公式把Γ转化为极坐标形式并写入
       var polar = rectToPolar(gamma, inDegree: _angleInDegree);
-      gammaOriginalMagController.text = polar[0].toStringAsFixed(4);
-      gammaOriginalAngleController.text = polar[1].toStringAsFixed(4);
+      gammaInitialMagController.text = polar[0].toStringAsFixed(4);
+      gammaInitialAngleController.text = polar[1].toStringAsFixed(4);
       var polar2 = rectToPolar(gamma2, inDegree: _angleInDegree);
       gammaTargetMagController.text = polar2[0].toStringAsFixed(4);
       gammaTargetAngleController.text = polar2[1].toStringAsFixed(4);
@@ -114,21 +198,21 @@ class _HomePageState extends State<HomePage> {
     _isSyncing = true;
     try {
       //将直角坐标Γ输入转化为Z输入
-      final gamma = parseFromFields(gammaOriginalReController.text, gammaOriginalImController.text);
+      final gamma = parseFromFields(gammaInitialReController.text, gammaInitialImController.text);
       final gamma2 = parseFromFields(gammaTargetReController.text, gammaTargetImController.text);
       double z0 = double.tryParse(z0Controller.text) ?? 50.0;
       final z = gammaToZ(gamma, z0);
       final z2 = gammaToZ(gamma2, z0);
       //填入Z
-      zOriginalReController.text = z.real.toStringAsFixed(4);
-      zOriginalImController.text = z.imaginary.toStringAsFixed(4);
+      zInitialReController.text = z.real.toStringAsFixed(4);
+      zInitialImController.text = z.imaginary.toStringAsFixed(4);
       zTargetReController.text = z2.real.toStringAsFixed(4);
       zTargetImController.text = z2.imaginary.toStringAsFixed(4);
 
       //将直角坐标Γ输入转化为Γ极坐标输入，并填入Γ极坐标输入
       var polar = rectToPolar(gamma, inDegree: _angleInDegree);
-      gammaOriginalMagController.text = polar[0].toStringAsFixed(4);
-      gammaOriginalAngleController.text = polar[1].toStringAsFixed(4);
+      gammaInitialMagController.text = polar[0].toStringAsFixed(4);
+      gammaInitialAngleController.text = polar[1].toStringAsFixed(4);
       var polar2 = rectToPolar(gamma2, inDegree: _angleInDegree);
       gammaTargetMagController.text = polar2[0].toStringAsFixed(4);
       gammaTargetAngleController.text = polar2[1].toStringAsFixed(4);
@@ -142,18 +226,18 @@ class _HomePageState extends State<HomePage> {
     _isSyncing = true;
     try {
       double z0 = double.tryParse(z0Controller.text) ?? 50.0;
-      double mag = double.tryParse(gammaOriginalMagController.text) ?? 0;
-      double ang = double.tryParse(gammaOriginalAngleController.text) ?? 0;
+      double mag = double.tryParse(gammaInitialMagController.text) ?? 0;
+      double ang = double.tryParse(gammaInitialAngleController.text) ?? 0;
       //Γ极坐标转化为Γ直角坐标
       Complex gamma = polarToComplex(mag, ang, inDegree: _angleInDegree);
       //Γ直角坐标填入
-      gammaOriginalReController.text = gamma.real.toStringAsFixed(4);
-      gammaOriginalImController.text = gamma.imaginary.toStringAsFixed(4);
+      gammaInitialReController.text = gamma.real.toStringAsFixed(4);
+      gammaInitialImController.text = gamma.imaginary.toStringAsFixed(4);
       //Γ转Z输入
       Complex z = gammaToZ(gamma, z0);
       //Z填入
-      zOriginalReController.text = z.real.toStringAsFixed(4);
-      zOriginalImController.text = z.imaginary.toStringAsFixed(4);
+      zInitialReController.text = z.real.toStringAsFixed(4);
+      zInitialImController.text = z.imaginary.toStringAsFixed(4);
       //同上操作
       double mag2 = double.tryParse(gammaTargetMagController.text) ?? 0;
       double ang2 = double.tryParse(gammaTargetAngleController.text) ?? 0;
@@ -212,19 +296,19 @@ class _HomePageState extends State<HomePage> {
   void _onAngleUnitChanged(bool useDegree) {
     setState(() {
       //先读取当前角度框的数值（若空则 0）
-      double thetaOri = double.tryParse(gammaOriginalAngleController.text) ?? 0;
+      double thetaInit = double.tryParse(gammaInitialAngleController.text) ?? 0;
       double thetaTar = double.tryParse(gammaTargetAngleController.text) ?? 0;
       //弧度和角度的转化
       if (_angleInDegree != useDegree) {
         if (useDegree) {
-          thetaOri = thetaOri * 180 / pi;
+          thetaInit = thetaInit * 180 / pi;
           thetaTar = thetaTar * 180 / pi;
         } else {
-          thetaOri = thetaOri * pi / 180;
+          thetaInit = thetaInit * pi / 180;
           thetaTar = thetaTar * pi / 180;
         }
         //写入
-        gammaOriginalAngleController.text = thetaOri.toStringAsFixed(4);
+        gammaInitialAngleController.text = thetaInit.toStringAsFixed(4);
         gammaTargetAngleController.text = thetaTar.toStringAsFixed(4);
       }
       _angleInDegree = useDegree;
@@ -246,26 +330,26 @@ class _HomePageState extends State<HomePage> {
         //如果是 Z 模式（阻抗输入）
         if (_inputMode == InputMode.impedance) {
           impedanceData = ImpedanceData(
-            zOriginal: parseFromFields(zOriginalReController.text, zOriginalImController.text),
+            zInitial: parseFromFields(zInitialReController.text, zInitialImController.text),
             zTarget: parseFromFields(zTargetReController.text, zTargetImController.text),
             frequency: double.parse(fController.text),
             z0: double.parse(z0Controller.text),
-            gammaOriginal: null,
+            gammaInitial: null,
             gammaTarget: null,
           );
         } else {
-          Complex gammaOriginal, gammaTarget;
+          Complex gammaInitial, gammaTarget;
           //如果是 Γ 模式（反射系数输入）
           //若是直角坐标
           if (_gammaFormat == GammaFormat.rectangular) {
-            gammaOriginal = parseFromFields(gammaOriginalReController.text, gammaOriginalImController.text);
+            gammaInitial = parseFromFields(gammaInitialReController.text, gammaInitialImController.text);
             gammaTarget = parseFromFields(gammaTargetReController.text, gammaTargetImController.text);
           }
           //若是极坐标
           else {
-            gammaOriginal = polarToComplex(
-                double.tryParse(gammaOriginalMagController.text) ?? 0,
-                double.tryParse(gammaOriginalAngleController.text) ?? 0,
+            gammaInitial = polarToComplex(
+                double.tryParse(gammaInitialMagController.text) ?? 0,
+                double.tryParse(gammaInitialAngleController.text) ?? 0,
                 inDegree: _angleInDegree);
             gammaTarget = polarToComplex(
                 double.tryParse(gammaTargetMagController.text) ?? 0,
@@ -273,11 +357,11 @@ class _HomePageState extends State<HomePage> {
                 inDegree: _angleInDegree);
           }
           impedanceData = ImpedanceData(
-            zOriginal: null,
+            zInitial: null,
             zTarget: null,
             frequency: double.parse(fController.text),
             z0: double.parse(z0Controller.text),
-            gammaOriginal: gammaOriginal,
+            gammaInitial: gammaInitial,
             gammaTarget: gammaTarget,
           );
         }
@@ -325,25 +409,27 @@ class _HomePageState extends State<HomePage> {
             children: [
               _buildMethodSelector(),
               SizedBox(height: 20),
+              _buildExampleRunner(),
+              SizedBox(height: 20),
               _buildSystemParamsCard(),
               SizedBox(height: 20),
               _buildInputModeSwitch(),
               SizedBox(height: 12),
               if (_inputMode == InputMode.impedance) ...[
-                _buildImpedanceInputCard("Source Impedance", zOriginalReController, zOriginalImController, Colors.green),
+                _buildImpedanceInputCard("Initial Impedance", zInitialReController, zInitialImController, Colors.green),
                 SizedBox(height: 12),
                 _buildImpedanceInputCard("Target Impedance", zTargetReController, zTargetImController, Colors.redAccent),
               ] else ...[
                 _buildGammaFormatSelector(),
                 SizedBox(height: 12),
                 if (_gammaFormat == GammaFormat.rectangular) ...[
-                  _buildImpedanceInputCard("Source Reflection (Γ_src)", gammaOriginalReController, gammaOriginalImController, Colors.green, isGamma: true),
+                  _buildImpedanceInputCard("Initial Reflection coefficient", gammaInitialReController, gammaInitialImController, Colors.green, isGamma: true),
                   SizedBox(height: 12),
-                  _buildImpedanceInputCard("Target Reflection (Γ_load)", gammaTargetReController, gammaTargetImController, Colors.redAccent, isGamma: true),
+                  _buildImpedanceInputCard("Target Reflection coefficient", gammaTargetReController, gammaTargetImController, Colors.redAccent, isGamma: true),
                 ] else ...[
-                  _buildGammaPolarCard("Source Reflection (Γ_src)", gammaOriginalMagController, gammaOriginalAngleController, Colors.green),
+                  _buildGammaPolarCard("Initial Reflection coefficient", gammaInitialMagController, gammaInitialAngleController, Colors.green),
                   SizedBox(height: 12),
-                  _buildGammaPolarCard("Target Reflection (Γ_load)", gammaTargetMagController, gammaTargetAngleController, Colors.redAccent),
+                  _buildGammaPolarCard("Target Reflection coefficient", gammaTargetMagController, gammaTargetAngleController, Colors.redAccent),
                 ]
               ],
               SizedBox(height: 30),
@@ -387,6 +473,59 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildExampleRunner() {
+    // In case the widget is built before initState finishes (rare), guard against null/empty.
+    if (_testExamples.isEmpty) return SizedBox.shrink();
+    final ex = _testExamples[_exampleIndex];
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.school, size: 18, color: Colors.grey),
+                      SizedBox(width: 8),
+                      Text('Test Examples', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    '${_exampleIndex + 1}/${_testExamples.length}  •  ${ex.name}',
+                    style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w600),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'Click NEXT EXAMPLE to auto-fill Initial/Target (and sync Γ).',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(width: 12),
+            ElevatedButton.icon(
+              onPressed: () => _applyTestExample(_exampleIndex + 1, sync: true),
+              icon: Icon(Icons.navigate_next, color: Colors.white),
+              label: Text('NEXT EXAMPLE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.black87,
+                padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                elevation: 2,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -611,4 +750,20 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
+}
+
+class _TestExample {
+  final String name;
+  final String frequencyText; // Hz
+  final String z0Text; // Ohm
+  final Complex zInitial;
+  final Complex zTarget;
+
+  _TestExample({
+    required this.name,
+    required this.frequencyText,
+    required this.z0Text,
+    required this.zInitial,
+    required this.zTarget,
+  });
 }

@@ -36,13 +36,186 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
         return MatchingCalculator.gammaToZ(widget.data.gammaTarget!, widget.data.z0);
       }
     } else {
-      if (widget.data.zOriginal != null) return widget.data.zOriginal!;
-      if (widget.data.gammaOriginal != null) {
-        return MatchingCalculator.gammaToZ(widget.data.gammaOriginal!, widget.data.z0);
+      if (widget.data.zInitial != null) return widget.data.zInitial!;
+      if (widget.data.gammaInitial != null) {
+        return MatchingCalculator.gammaToZ(widget.data.gammaInitial!, widget.data.z0);
       }
     }
     return Complex(widget.data.z0, 0); // Fallback
   }
+  // ================== Input Summary (shown on result page) ==================
+  Widget _buildInputSummaryCard(ImpedanceData data) {
+    final Complex zInit = _getZValue(false);
+    final Complex zTar = _getZValue(true);
+
+    // Prefer the user's initial input when available; otherwise derive it.
+    final Complex gammaInit = data.gammaInitial ?? zToGamma(zInit, data.z0);
+    final Complex gammaTar = data.gammaTarget ?? zToGamma(zTar, data.z0);
+
+    final bool isZMode = (data.zInitial != null || data.zTarget != null);
+    final String modeLabel = isZMode ? 'Impedance (Z)' : 'Reflection (Γ)';
+
+    final String fLatex = r'f = ' + _latexNumAuto(data.frequency, precision: 4) + r'\,\mathrm{Hz}';
+    final String z0Latex = r'Z_0 = ' + _latexNumAuto(data.z0, precision: 4) + r'\,\Omega';
+
+    return Card(
+      elevation: 1.5,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.description_outlined, size: 18, color: Colors.grey[700]),
+                const SizedBox(width: 8),
+                const Text('Input Summary', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Spacer(),
+                Text(modeLabel, style: TextStyle(fontSize: 12, color: Colors.grey[700])),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 16,
+              runSpacing: 6,
+              children: [
+                _smallMath(fLatex),
+                _smallMath(z0Latex),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _endpointBlock(
+                    title: 'Initial',
+                    color: Colors.green,
+                    z: zInit,
+                    gamma: gammaInit,
+                    zSymbolLatex: r'Z_{\mathrm{init}}',
+                    gammaSymbolLatex: r'\Gamma_{\mathrm{init}}',
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _endpointBlock(
+                    title: 'Target',
+                    color: Colors.red,
+                    z: zTar,
+                    gamma: gammaTar,
+                    zSymbolLatex: r'Z_{\mathrm{tar}}',
+                    gammaSymbolLatex: r'\Gamma_{\mathrm{tar}}',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _latexNumAuto(num v, {int precision = 4}) {
+    if (v.abs() < 1e-12) return '0';
+
+    String _normalizeExp(String s) {
+      // Normalize 10^{08} -> 10^{8}, 10^{-03} -> 10^{-3}
+      return s.replaceAllMapped(
+        RegExp(r'10\^\{(-?)0*([0-9]+)\}'),
+        (m) => '10^{${m.group(1) ?? ''}${m.group(2)}}',
+      );
+    }
+
+    final a = v.abs();
+    // Use scientific notation only when values are very small/large (consistent with outputNum)
+    if (a < 1e-3 || a >= 1e4) {
+      // toStringAsExponential(d) uses d digits AFTER decimal.
+      final sci = toLatexScientific(v, digits: ((precision - 1) < 0 ? 0 : (precision - 1)));
+      return _normalizeExp(sci);
+    }
+
+    final s = v.toStringAsPrecision(precision);
+    if (s.contains('e') || s.contains('E')) {
+      final sci = toLatexScientific(v, digits: ((precision - 1) < 0 ? 0 : (precision - 1)));
+      return _normalizeExp(sci);
+    }
+    return s;
+  }
+
+  String _complexToLatex(Complex c, {int precision = 4}) {
+    final re = c.real;
+    final im = c.imaginary;
+
+    if (im.abs() < 1e-12) {
+      return _latexNumAuto(re, precision: precision);
+    }
+    if (re.abs() < 1e-12) {
+      return '${_latexNumAuto(im, precision: precision)}\\,\\mathrm{j}';
+    }
+
+    final reStr = _latexNumAuto(re, precision: precision);
+    final imStr = _latexNumAuto(im.abs(), precision: precision);
+    final sign = im >= 0 ? '+' : '-';
+    return '$reStr $sign $imStr\\,\\mathrm{j}';
+  }
+
+  Widget _smallMath(String tex) {
+    return Math.tex(
+      tex,
+      mathStyle: MathStyle.text,
+      textStyle: const TextStyle(fontSize: 12, color: Colors.black87),
+    );
+  }
+
+  Widget _endpointBlock({
+    required String title,
+    required Color color,
+    required Complex z,
+    required Complex gamma,
+    required String zSymbolLatex,
+    required String gammaSymbolLatex,
+  }) {
+    final zLatex = '$zSymbolLatex = ${_complexToLatex(z, precision: 4)}\\,\\Omega';
+    final gLatex = '$gammaSymbolLatex = ${_complexToLatex(gamma, precision: 4)}';
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+              const SizedBox(width: 8),
+              Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: color)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Math.tex(
+            zLatex,
+            mathStyle: MathStyle.text,
+            textStyle: const TextStyle(fontSize: 13, color: Colors.black87),
+          ),
+          const SizedBox(height: 4),
+          Math.tex(
+            gLatex,
+            mathStyle: MathStyle.text,
+            textStyle: const TextStyle(fontSize: 13, color: Colors.black87),
+          ),
+        ],
+      ),
+    );
+  }
+
 
   // L-Matching Component Value Display Helper
   Widget latexComponentEntry(String key, double value) {
@@ -101,7 +274,21 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
       // Even if solutions is not empty, it might contain the "Infeasible Case".
       // We render it normally so the user sees the explanation.
       if (result.solutions.isEmpty) {
-        return Scaffold(appBar: AppBar(title: Text('Result')), body: Center(child: Text('No solution found.')));
+        return Scaffold(
+          appBar: AppBar(title: Text('Result')),
+          body: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildInputSummaryCard(widget.data),
+                const SizedBox(height: 16),
+                const Text('No solution found.', textAlign: TextAlign.center),
+              ],
+            ),
+          ),
+        );
       }
 
       return DefaultTabController(
@@ -129,7 +316,21 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
       final result = SingleStubMatchingCalculator.calculateStubMatch(widget.data);
 
       if (result.solutions.isEmpty) {
-        return Scaffold(appBar: AppBar(title: Text('No Solution')), body: Center(child: Text('No solution found.')));
+        return Scaffold(
+          appBar: AppBar(title: Text('No Solution')),
+          body: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildInputSummaryCard(widget.data),
+                const SizedBox(height: 16),
+                const Text('No solution found.', textAlign: TextAlign.center),
+              ],
+            ),
+          ),
+        );
       }
 
       return DefaultTabController(
@@ -186,13 +387,15 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
 
   // ================== T-Matching View ==================
   Widget _buildTMatchView(TMatchingResult result, ImpedanceData data) {
-    String zOriStr = data.zOriginal != null ? "Z_ori = ${outputNum(data.zOriginal!)}Ω" : "Source";
-    String zTarStr = data.zTarget != null ? "Z_tar = ${outputNum(data.zTarget!)}Ω" : "Load";
+    String zInitStr = data.zInitial != null ? "Zinit = ${outputNum(data.zInitial!)}Ω" : "Source";
+    String zTarStr = data.zTarget != null ? "Ztar = ${outputNum(data.zTarget!)}Ω" : "Load";
 
     return Padding(
       padding: EdgeInsets.all(16),
       child: ListView(
         children: [
+          _buildInputSummaryCard(data),
+          SizedBox(height: 12),
           Row(
             children: [
               Icon(Icons.filter_hdr, color: Colors.blue[800]),
@@ -212,7 +415,8 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
               constraints: BoxConstraints(maxWidth: 400),
               child: SmithChart(
                 paths: result.paths,
-                zOriginal: _getZValue(false), // Pass Start Z
+                showAdmittance: true,
+                zInitial: _getZValue(false), // Pass Start Z
                 zTarget: _getZValue(true),    // Pass Target Z
                 z0: widget.data.z0,
               ),
@@ -226,7 +430,7 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
           Center(
             child: TMatchTopology(
               values: result.values,
-              zOriginalStr: zOriStr,
+              zInitialStr: zInitStr,
               zTargetStr: zTarStr,
               width: 340,
               height: 220,
@@ -256,13 +460,15 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
 
   // ================== Pi-Matching View ==================
   Widget _buildPiMatchView(PiMatchingResult result, ImpedanceData data) {
-    String zOriStr = data.zOriginal != null ? "Z_ori = ${outputNum(data.zOriginal!)}Ω" : "Source";
-    String zTarStr = data.zTarget != null ? "Z_tar = ${outputNum(data.zTarget!)}Ω" : "Load";
+    String zInitStr = data.zInitial != null ? "Zinit = ${outputNum(data.zInitial!)}Ω" : "Source";
+    String zTarStr = data.zTarget != null ? "Ztar = ${outputNum(data.zTarget!)}Ω" : "Load";
 
     return Padding(
       padding: EdgeInsets.all(16),
       child: ListView(
         children: [
+          _buildInputSummaryCard(data),
+          SizedBox(height: 12),
           Row(
             children: [
               Icon(Icons.filter_hdr, color: Colors.blue[800]),
@@ -282,7 +488,8 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
               constraints: BoxConstraints(maxWidth: 400),
               child: SmithChart(
                 paths: result.paths,
-                zOriginal: _getZValue(false),
+                showAdmittance: true,
+                zInitial: _getZValue(false),
                 zTarget: _getZValue(true),
                 z0: widget.data.z0,
               ),
@@ -295,7 +502,7 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
           Center(
             child: PiMatchTopology(
               values: result.values,
-              zOriginalStr: zOriStr,
+              zInitialStr: zInitStr,
               zTargetStr: zTarStr,
               width: 340,
               height: 200,
@@ -322,12 +529,14 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
 
   // ================== Single Stub View ==================
   Widget _buildSingleStubView(StubSolution solution, List<String> commonSteps, ImpedanceData data) {
-    String mode = (data.zOriginal != null) ? 'Z' : 'Gamma';
+    String mode = (data.zInitial != null) ? 'Z' : 'Gamma';
 
     return Padding(
       padding: EdgeInsets.all(16),
       child: ListView(
         children: [
+          _buildInputSummaryCard(data),
+          SizedBox(height: 12),
           Row(
             children: [
               Icon(Icons.electrical_services, color: Colors.blue[800]),
@@ -346,7 +555,8 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
               constraints: BoxConstraints(maxWidth: 400),
               child: SmithChart(
                 paths: solution.paths,
-                zOriginal: _getZValue(false),
+                showAdmittance: true,
+                zInitial: _getZValue(false),
                 zTarget: _getZValue(true),
                 z0: widget.data.z0,
               ),
@@ -363,9 +573,9 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
               isShortStub: solution.stubType == 'Short',
               mode: mode,
               zTarget: data.zTarget,
-              zOriginal: data.zOriginal,
+              zInitial: data.zInitial,
               gammaTarget: data.gammaTarget,
-              gammaOriginal: data.gammaOriginal,
+              gammaInitial: data.gammaInitial,
               width: 340,
               height: 200,
             ),
@@ -390,9 +600,9 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
 
   // ================== L-Matching View ==================
   Widget _buildSingleLMatchView(LMatchSolution solution, List<String> commonSteps, ImpedanceData data) {
-    String zOriginalValue = data.zOriginal != null
-        ? outputNum(data.zOriginal!, precision: 2) + ' Ω'
-        : (data.gammaOriginal != null ? 'Γ=' + outputNum(data.gammaOriginal!, precision: 2) : '');
+    String zInitialValue = data.zInitial != null
+        ? outputNum(data.zInitial!, precision: 2) + ' Ω'
+        : (data.gammaInitial != null ? 'Γ=' + outputNum(data.gammaInitial!, precision: 2) : '');
     String zTargetValue = data.zTarget != null
         ? outputNum(data.zTarget!, precision: 2) + ' Ω'
         : (data.gammaTarget != null ? 'Γ=' + outputNum(data.gammaTarget!, precision: 2) : '');
@@ -404,6 +614,8 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
       padding: EdgeInsets.all(16),
       child: ListView(
         children: [
+          _buildInputSummaryCard(data),
+          SizedBox(height: 12),
           Text(solution.title, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: isInfeasible ? Colors.red : Colors.blue[800])),
           SizedBox(height: 8),
           if (!isInfeasible)
@@ -417,7 +629,8 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
               constraints: BoxConstraints(maxWidth: 400),
               child: SmithChart(
                 paths: solution.paths,
-                zOriginal: _getZValue(false), // Pass Start Z
+                showAdmittance: true,
+                zInitial: _getZValue(false), // Pass Start Z
                 zTarget: _getZValue(true),    // Pass Target Z
                 z0: widget.data.z0,
               ),
@@ -433,7 +646,7 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
               child: LMatchTopology(
                 topology: solution.topologyType,
                 values: solution.values,
-                zOriginalValue: zOriginalValue,
+                zInitialValue: zInitialValue,
                 zTargetValue: zTargetValue,
                 width: 340,
                 height: 180,

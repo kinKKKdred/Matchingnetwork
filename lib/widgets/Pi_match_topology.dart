@@ -6,7 +6,7 @@ enum CompType { inductor, capacitor, none }
 
 class PiMatchTopology extends StatelessWidget {
   final Map<String, double> values;
-  final String zOriginalStr;
+  final String zInitialStr;
   final String zTargetStr;
   final double width;
   final double height;
@@ -14,7 +14,7 @@ class PiMatchTopology extends StatelessWidget {
   const PiMatchTopology({
     Key? key,
     required this.values,
-    required this.zOriginalStr,
+    required this.zInitialStr,
     required this.zTargetStr,
     this.width = 340,
     this.height = 220,
@@ -55,7 +55,7 @@ class PiMatchTopology extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildLegendRow("Ports:", [zOriginalStr, zTargetStr]),
+              _buildLegendRow("Ports:", [zInitialStr, zTargetStr]),
               SizedBox(height: 6),
               Text("Components:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blueGrey[800])),
               SizedBox(height: 4),
@@ -212,7 +212,7 @@ class PiCircuitPainter extends CustomPainter {
     canvas.restore();
 
     // 文字标签 (统一格式：← Z_ori)
-    String label = isInput ? "Z_ori" : "Z_tar";
+    String label = isInput ? "Z_init" : "Z_tar";
     String text = "← $label";
 
     TextPainter tp = TextPainter(

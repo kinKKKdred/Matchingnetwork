@@ -7,9 +7,9 @@ class SingleStubTopology extends StatelessWidget {
   final double stubLengthLambda;
   final bool isShortStub;
   final String mode;
-  final Complex? zOriginal;
+  final Complex? zInitial;
   final Complex? zTarget;
-  final Complex? gammaOriginal;
+  final Complex? gammaInitial;
   final Complex? gammaTarget;
 
   final double width;
@@ -21,9 +21,9 @@ class SingleStubTopology extends StatelessWidget {
     required this.stubLengthLambda,
     this.isShortStub = true,
     required this.mode,
-    this.zOriginal,
+    this.zInitial,
     this.zTarget,
-    this.gammaOriginal,
+    this.gammaInitial,
     this.gammaTarget,
     this.width = 340,
     this.height = 200,
@@ -32,9 +32,9 @@ class SingleStubTopology extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // 准备显示的文本，保持简洁，因为上面已经有图例了
-    String zOriStr = zOriginal != null
-        ? "Z_ori = ${outputNum(zOriginal!)}Ω"
-        : (gammaOriginal != null ? "Γ_ori = ${outputNum(gammaOriginal!)}" : "Source");
+    String zinitStr = zInitial != null
+        ? "Z_init = ${outputNum(zInitial!)}Ω"
+        : (gammaInitial != null ? "Γ_init = ${outputNum(gammaInitial!)}" : "Source");
 
     String zTarStr = zTarget != null
         ? "Z_tar = ${outputNum(zTarget!)}Ω"
@@ -70,7 +70,7 @@ class SingleStubTopology extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildLegendRow("Ports:", [zOriStr, zTarStr]),
+              _buildLegendRow("Ports:", [zinitStr, zTarStr]),
               SizedBox(height: 6),
               _buildLegendRow("Elec. Lengths:", [
                 "d = ${mainLineLengthLambda.toStringAsFixed(4)}λ",
@@ -145,7 +145,7 @@ class SingleStubCircuitPainter extends CustomPainter {
     }
 
     // 4. 【修复2】画端口标签（模仿 L-Match 风格）
-    _drawPortLabel(canvas, Offset(startX, yMain), "Z_ori", isLeft: true);
+    _drawPortLabel(canvas, Offset(startX, yMain), "Z_init", isLeft: true);
     _drawPortLabel(canvas, Offset(endX, yMain), "Z_tar", isLeft: false);
 
     // 5. 画尺寸标注
@@ -164,7 +164,7 @@ class SingleStubCircuitPainter extends CustomPainter {
     // 画黑点
     canvas.drawCircle(p, 3.5, Paint()..style=PaintingStyle.fill);
 
-    // 画文字 "← Z_ori"
+    // 画文字 "← Z_init"
     String label = "← $text";
     if (!isLeft) label = "$text →"; // 右边可能箭头向右比较好看，或者统一向左
 

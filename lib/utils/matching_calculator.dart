@@ -48,17 +48,17 @@ class MatchingCalculator {
   static MatchingResult calculateLMatch(ImpedanceData data) {
     // ================= 1. 公共预处理 (输入转换与归一化) =================
     List<String> commonSteps = [];
-    Complex zOriginal, zTarget;
+    Complex zInitial, zTarget;
 
     // 解析输入
-    if (data.zOriginal != null && data.zTarget != null) {
-      zOriginal = data.zOriginal!;
+    if (data.zInitial != null && data.zTarget != null) {
+      zInitial = data.zInitial!;
       zTarget = data.zTarget!;
-    } else if (data.gammaOriginal != null && data.gammaTarget != null) {
-      zOriginal = gammaToZ(data.gammaOriginal!, data.z0);
+    } else if (data.gammaInitial != null && data.gammaTarget != null) {
+      zInitial = gammaToZ(data.gammaInitial!, data.z0);
       zTarget = gammaToZ(data.gammaTarget!, data.z0);
       commonSteps.add(r'\textbf{Step 0. Convert Reflection Coefficient to Impedance:}');
-      commonSteps.add(r'Z_\mathrm{ori} = Z_0 \frac{1+\Gamma_\mathrm{ori}}{1-\Gamma_\mathrm{ori}} = ' + outputNum(zOriginal, precision: 3) + r'\;\Omega');
+      commonSteps.add(r'Z_\mathrm{Init} = Z_0 \frac{1+\Gamma_\mathrm{Init}}{1-\Gamma_\mathrm{Init}} = ' + outputNum(zInitial, precision: 3) + r'\;\Omega');
       commonSteps.add(r'Z_\mathrm{tar} = Z_0 \frac{1+\Gamma_\mathrm{tar}}{1-\Gamma_\mathrm{tar}} = ' + outputNum(zTarget, precision: 3) + r'\;\Omega');
     } else {
       throw Exception('Input incomplete');
@@ -66,11 +66,11 @@ class MatchingCalculator {
 
     // ================= [NEW 1] 检查是否无需匹配 (Already Matched) =================
     // 阈值：如果两个阻抗的差异小于 0.05 欧姆，认为是一样的
-    if ((zOriginal - zTarget).abs() < 0.05) {
+    if ((zInitial - zTarget).abs() < 0.05) {
       List<String> infoSteps = [];
       infoSteps.add(r'\textbf{Status: Already Matched}');
       infoSteps.add(r'\text{The source impedance is sufficiently close to the target impedance.}');
-      infoSteps.add(r'\Delta Z = |Z_\mathrm{ori} - Z_\mathrm{tar}| \approx 0');
+      infoSteps.add(r'\Delta Z = |Z_\mathrm{Init} - Z_\mathrm{tar}| \approx 0');
       infoSteps.add(r'\text{No matching network is required (Direct Connection).}');
 
       // 构造一个“已匹配”的解
@@ -87,11 +87,11 @@ class MatchingCalculator {
     }
 
     // ================= [NEW 2] 鲁棒性保护：纯虚部输入检查 =================
-    // 修复 Bug：当 Z_original 实部为 0 (纯电抗) 且 Z_target 实部 > 0 时，L型网络无解。
+    // 修复 Bug：当 Z_initial 实部为 0 (纯电抗) 且 Z_target 实部 > 0 时，L型网络无解。
     const double epsilon = 1e-6;
 
     // 检查条件：起点是纯虚部 (R ≈ 0) 且 终点有实部 (R > 0)
-    if (zOriginal.real.abs() < epsilon && zTarget.real.abs() > epsilon) {
+    if (zInitial.real.abs() < epsilon && zTarget.real.abs() > epsilon) {
       List<String> errorSteps = [];
       errorSteps.add(r'\textbf{Feasibility Check Failed:}');
       errorSteps.add(r'\color{red}{\text{Error: Cannot match a pure reactance source (R=0) to a resistive load (R>0) using lossless L-networks.}}');
@@ -112,10 +112,10 @@ class MatchingCalculator {
     // ================= [结束] 鲁棒性保护 =================
 
     // 归一化
-    final z1 = zOriginal / Complex(data.z0, 0);
+    final z1 = zInitial / Complex(data.z0, 0);
     final z2 = zTarget / Complex(data.z0, 0);
     commonSteps.add(r'\textbf{Step 1. Normalize Impedances:}');
-    commonSteps.add(r'z_\mathrm{ori} = \frac{Z_\mathrm{ori}}{Z_0} = ' + outputNum(z1, precision: 3));
+    commonSteps.add(r'z_\mathrm{Init} = \frac{Z_\mathrm{Init}}{Z_0} = ' + outputNum(z1, precision: 3));
     commonSteps.add(r'z_\mathrm{tar} = \frac{Z_\mathrm{tar}}{Z_0} = ' + outputNum(z2, precision: 3));
 
     List<LMatchSolution> solutions = [];
@@ -243,8 +243,8 @@ class MatchingCalculator {
       Xs_real = Xs_norm * data.z0;
 
       steps.add(r'\textbf{Step 3. Calculate Series Element:}');
-      steps.add(r'\text{The series reactance required to move from } z_{ori} \text{ to } z_{mid} \text{ is:}');
-      steps.add(r'j x_s = z_{mid} - z_{ori} = (' + outputNum(zMid, precision: 2) + r') - (' + outputNum(z1, precision: 2) + r')');
+      steps.add(r'\text{The series reactance required to move from } z_{Init} \text{ to } z_{mid} \text{ is:}');
+      steps.add(r'j x_s = z_{mid} - z_{Init} = (' + outputNum(zMid, precision: 2) + r') - (' + outputNum(z1, precision: 2) + r')');
       steps.add(r'x_s = ' + outputNum(Xs_norm, precision: 3));
       steps.add(r'X_{series} = x_s \times Z_0 = ' + outputNum(Xs_norm, precision: 3) + r' \times ' + outputNum(data.z0) + r' = ' + outputNum(Xs_real, precision: 2) + r'\;\Omega');
 
@@ -294,8 +294,8 @@ class MatchingCalculator {
       Xp_real = -data.z0 / B_norm;
 
       steps.add(r'\textbf{Step 3. Calculate Shunt Element:}');
-      steps.add(r'\text{The shunt susceptance to move from } y_{ori} \text{ to } y_{mid} \text{ is:}');
-      steps.add(r'j b_p = y_{mid} - y_{ori} = (' + outputNum(yMid, precision: 2) + r') - (' + outputNum(y1, precision: 2) + r')');
+      steps.add(r'\text{The shunt susceptance to move from } y_{Init} \text{ to } y_{mid} \text{ is:}');
+      steps.add(r'j b_p = y_{mid} - y_{Init} = (' + outputNum(yMid, precision: 2) + r') - (' + outputNum(y1, precision: 2) + r')');
       steps.add(r'b_p = ' + outputNum(B_norm, precision: 3));
       steps.add(r'X_{shunt} = \frac{-Z_0}{b_p} = \frac{-' + outputNum(data.z0) + r'}{' + outputNum(B_norm, precision: 3) + r'} = ' + outputNum(Xp_real, precision: 2) + r'\;\Omega');
 

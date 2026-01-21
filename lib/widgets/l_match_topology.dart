@@ -7,7 +7,7 @@ enum ComponentType { inductor, capacitor, none }
 class LMatchTopology extends StatelessWidget {
   final LTopologyType topology;
   final Map<String, double> values;
-  final String zOriginalValue;
+  final String zInitialValue;
   final String zTargetValue;
 
   final double width;
@@ -17,7 +17,7 @@ class LMatchTopology extends StatelessWidget {
     Key? key,
     required this.topology,
     required this.values,
-    required this.zOriginalValue,
+    required this.zInitialValue,
     required this.zTargetValue,
     this.width = 340,
     this.height = 160, // 高度可以稍微减小，因为图里没字了
@@ -93,7 +93,7 @@ class LMatchTopology extends StatelessWidget {
             children: [
               // 端口阻抗值
               _buildLegendRow("Ports:", [
-                "Z_ori = $zOriginalValue",
+                "Z_init = $zInitialValue",
                 "Z_tar = $zTargetValue",
               ]),
               SizedBox(height: 8),
@@ -168,7 +168,7 @@ class LMatchCircuitPainter extends CustomPainter {
     double slot2X = startX + 2 * (endX - startX) / 3;
 
     // 绘制端口 (只画带箭头的标签)
-    _drawPort(canvas, Offset(startX, midY), "Z_ori");
+    _drawPort(canvas, Offset(startX, midY), "Z_init");
     _drawPort(canvas, Offset(endX, midY), "Z_tar");
 
     if (topology == LTopologyType.seriesFirst) {

@@ -6,7 +6,7 @@ enum CompType { inductor, capacitor, none }
 
 class TMatchTopology extends StatelessWidget {
   final Map<String, double> values;
-  final String zOriginalStr;
+  final String zInitialStr;
   final String zTargetStr;
   final double width;
   final double height;
@@ -14,7 +14,7 @@ class TMatchTopology extends StatelessWidget {
   const TMatchTopology({
     Key? key,
     required this.values,
-    required this.zOriginalStr,
+    required this.zInitialStr,
     required this.zTargetStr,
     this.width = 340,
     this.height = 220,
@@ -55,7 +55,7 @@ class TMatchTopology extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildLegendRow("Ports:", [zOriginalStr, zTargetStr]),
+              _buildLegendRow("Ports:", [zInitialStr, zTargetStr]),
               SizedBox(height: 6),
               Text("Components:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blueGrey[800])),
               SizedBox(height: 4),
@@ -195,7 +195,7 @@ class TCircuitPainter extends CustomPainter {
     canvas.restore();
 
     // 统一文字格式：← Z_xxx
-    String label = isInput ? "Z_ori" : "Z_tar";
+    String label = isInput ? "Z_init" : "Z_tar";
     String text = "← $label";
     TextPainter tp = TextPainter(text: TextSpan(text: text, style: TextStyle(color: Colors.black, fontSize: 12, fontWeight: FontWeight.bold)), textDirection: TextDirection.ltr);
     tp.layout();

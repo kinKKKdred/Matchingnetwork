@@ -28,14 +28,14 @@ class PiMatchingCalculator {
     // 1. 数据准备
     double f = data.frequency;
     double omega = 2 * pi * f;
-    Complex zS = data.zOriginal ?? Complex(50, 0);
+    Complex zS = data.zInitial ?? Complex(50, 0);
     Complex zL = data.zTarget ?? Complex(50, 0);
     Complex yS = Complex(1, 0) / zS;
     Complex yL = Complex(1, 0) / zL;
 
     steps.add(r'\textbf{Step 1. Analyze Admittances:}');
     steps.add(r'\text{Pi-Network works with parallel nodes, so we convert Z to Y:}');
-    steps.add(r'Y_{ori} = 1/Z_{ori} = ' + outputNum(yS, precision: 4) + r'\;\mathrm{S}');
+    steps.add(r'Y_{Init} = 1/Z_{Init} = ' + outputNum(yS, precision: 4) + r'\;\mathrm{S}');
     steps.add(r'Y_{tar} = 1/Z_{tar} = ' + outputNum(yL, precision: 4) + r'\;\mathrm{S}');
 
     // 2. Q 值与 Rv 计算 (详细教学版)

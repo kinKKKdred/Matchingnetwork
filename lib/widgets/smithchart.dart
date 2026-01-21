@@ -8,7 +8,7 @@ class SmithChart extends StatelessWidget {
   final List<SmithPath> paths;
   final bool showAdmittance;
   // [新增] 接收固定点，用于处理无解或初始状态的显示
-  final Complex? zOriginal;
+  final Complex? zInitial;
   final Complex? zTarget;
   final double z0;
 
@@ -16,7 +16,7 @@ class SmithChart extends StatelessWidget {
     Key? key,
     this.paths = const [],
     this.showAdmittance = false,
-    this.zOriginal,
+    this.zInitial,
     this.zTarget,
     this.z0 = 50.0,
   }) : super(key: key);
@@ -25,36 +25,26 @@ class SmithChart extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // 自适应宽度
-        double availableWidth = constraints.maxWidth;
-        double chartSize = availableWidth - 40;
-
-        if (chartSize > 400) chartSize = 400;
-        if (chartSize < 200) chartSize = 200;
+        double size = min(constraints.maxWidth, constraints.maxHeight);
 
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: chartSize + 40,
-              height: chartSize + 40,
-              alignment: Alignment.center,
+            SizedBox(
+              width: size,
+              height: size,
               child: CustomPaint(
-                size: Size(chartSize, chartSize),
                 painter: SmithChartPainter(
                   paths: paths,
                   showAdmittance: showAdmittance,
-                  zOriginal: zOriginal, // 传入 Painter
-                  zTarget: zTarget,     // 传入 Painter
-                  z0: z0,               // 传入 Painter
+                  zInitial: zInitial,
+                  zTarget: zTarget,
+                  z0: z0,
                 ),
               ),
             ),
-
-            SizedBox(height: 12),
-
-            // 只要有路径 或者 有起终点信息，就显示图例
-            if (paths.isNotEmpty || zOriginal != null || zTarget != null)
+            const SizedBox(height: 18),
+            if (paths.isNotEmpty || zInitial != null || zTarget != null)
               _buildDynamicLegend(context),
           ],
         );
@@ -69,92 +59,138 @@ class SmithChart extends StatelessWidget {
     String formatZStr(Complex z) {
       if (z.real.abs() > 900) return "∞";
       String sign = z.imaginary >= 0 ? '+' : '-';
-      return '${z.real.toStringAsFixed(1)}$sign${z.imaginary.abs().toStringAsFixed(1)}j';
+      return "${z.real.toStringAsFixed(1)}${sign}${z.imaginary.abs().toStringAsFixed(1)}j";
     }
 
     // 辅助：Gamma -> String
-    String formatGamma(Complex gamma) {
-      return formatZStr(_gammaToZ(gamma));
+    String formatGammaStr(Complex g) {
+      String sign = g.imaginary >= 0 ? '+' : '-';
+      return "${g.real.toStringAsFixed(3)}${sign}${g.imaginary.abs().toStringAsFixed(3)}j";
     }
 
-    // 1. 起点图例
-    if (zOriginal != null) {
-      items.add(_legendItem(Colors.green, "Start: ${formatZStr(zOriginal!)}"));
+    // [修改] 用传入的 zInitial/zTarget 优先生成 Legend 点
+    Complex? startGamma;
+    Complex? targetGamma;
+
+    if (zInitial != null) {
+      // 归一化到 z0 后再算 Gamma
+      Complex normZ = zInitial! / Complex(z0, 0);
+      startGamma = _zToGamma_Normalized(normZ);
     } else if (paths.isNotEmpty) {
-      items.add(_legendItem(Colors.green, "Start: ${formatGamma(paths.first.startGamma)}"));
+      startGamma = paths.first.startGamma;
     }
 
-    // 2. 中间点图例 (仅当有轨迹时显示)
-    if (paths.length > 1) {
-      for(int i=0; i < paths.length - 1; i++) {
-        items.add(_legendItem(Colors.grey[700]!, "Mid: ${formatGamma(paths[i].endGamma)}"));
-      }
-    }
-
-    // 3. 终点图例
     if (zTarget != null) {
-      items.add(_legendItem(Colors.red, "Target: ${formatZStr(zTarget!)}"));
+      Complex normZt = zTarget! / Complex(z0, 0);
+      targetGamma = _zToGamma_Normalized(normZt);
     } else if (paths.isNotEmpty) {
-      items.add(_legendItem(Colors.red, "Target: ${formatGamma(paths.last.endGamma)}"));
+      targetGamma = paths.last.endGamma;
     }
 
-    // 4. 轨迹颜色说明 (仅当有轨迹时显示)
-    if (paths.isNotEmpty) {
-      bool hasTransLine = paths.any((p) => p.type == PathType.transmissionLine);
-      String blueLabel = hasTransLine ? "Line (d)" : "Series";
-      String orangeLabel = hasTransLine ? "Stub (l)" : "Shunt";
-
-      items.add(_legendItem(Colors.blue[800]!, blueLabel, isTrajectory: true));
-      items.add(_legendItem(Colors.orange[800]!, orangeLabel, isTrajectory: true));
+    if (startGamma != null) {
+      Complex zStartNorm = _gammaToZ_Normalized(startGamma);
+      Complex zStart = zStartNorm * Complex(z0, 0);
+      items.add(_legendRow(
+        color: Colors.green,
+        title: "Initial",
+        detail: "${formatZStr(zStart)}  (Γ=${formatGammaStr(startGamma)})",
+      ));
     }
+
+    // 如果有中间点，就显示
+    if (paths.length >= 2) {
+      Complex midGamma = paths.first.endGamma;
+      Complex zMidNorm = _gammaToZ_Normalized(midGamma);
+      Complex zMid = zMidNorm * Complex(z0, 0);
+      items.add(_legendRow(
+        color: Colors.black54,
+        title: "Mid",
+        detail: "${formatZStr(zMid)}  (Γ=${formatGammaStr(midGamma)})",
+      ));
+    }
+
+    if (targetGamma != null) {
+      Complex zTNorm = _gammaToZ_Normalized(targetGamma);
+      Complex zT = zTNorm * Complex(z0, 0);
+      items.add(_legendRow(
+        color: Colors.red,
+        title: "Target",
+        detail: "${formatZStr(zT)}  (Γ=${formatGammaStr(targetGamma)})",
+      ));
+    }
+
+    // path types legend
+    items.add(const SizedBox(height: 8));
+    items.add(Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 20,
+      runSpacing: 6,
+      children: [
+        _legendLine(color: Colors.blue[800]!, label: "Series"),
+        _legendLine(color: Colors.orange[800]!, label: "Shunt"),
+      ],
+    ));
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8.0),
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 8,
-        alignment: WrapAlignment.center,
+      child: Column(
         children: items,
       ),
     );
   }
 
-  Widget _legendItem(Color color, String text, {bool isTrajectory = false}) {
+  Widget _legendRow({required Color color, required String title, required String detail}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+          const SizedBox(width: 8),
+          Text("$title: ", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          Flexible(child: Text(detail, style: const TextStyle(fontSize: 12))),
+        ],
+      ),
+    );
+  }
+
+  Widget _legendLine({required Color color, required String label}) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-            width: isTrajectory ? 12 : 8,
-            height: isTrajectory ? 4 : 8,
-            decoration: BoxDecoration(
-              color: color,
-              shape: isTrajectory ? BoxShape.rectangle : BoxShape.circle,
-              borderRadius: isTrajectory ? BorderRadius.circular(2) : null,
-            )
-        ),
-        SizedBox(width: 6),
-        Text(text, style: TextStyle(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500)),
+        Container(width: 24, height: 4, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2))),
+        const SizedBox(width: 6),
+        Text(label, style: const TextStyle(fontSize: 12)),
       ],
     );
   }
 
-  Complex _gammaToZ(Complex g) { if ((Complex(1,0)-g).abs() < 1e-5) return Complex(1000, 0); return (Complex(1,0)+g)/(Complex(1,0)-g) * Complex(50, 0); } // 注意这里我乘了50只是为了简单显示，实际应乘z0，但在legend里通常归一化或者直接显示值，这里的逻辑最好统一。修正：上面formatZStr直接用了Z，这里_gammaToZ返回的是归一化Z还是实际Z取决于输入。为了通用，这里假设gamma转归一化Z，但在legend里我们想要实际Z，所以逻辑稍微调整了下。
-// 为了简化，上面的 formatGamma 直接调用 _gammaToZ，这假设 _gammaToZ 返回归一化值。如果需要实际值，请自行乘 z0。
-// 修正 _gammaToZ 为返回实际阻抗：
+  // ====== 下面这些工具函数供 Legend 使用 ======
+  // 归一化 Z -> Γ
+  Complex _zToGamma_Normalized(Complex normZ) {
+    // Γ = (z - 1) / (z + 1)
+    return (normZ - Complex(1, 0)) / (normZ + Complex(1, 0));
+  }
+
+  // Γ -> 归一化 Z
+  Complex _gammaToZ_Normalized(Complex gamma) {
+    // z = (1 + Γ) / (1 - Γ)
+    return (Complex(1, 0) + gamma) / (Complex(1, 0) - gamma);
+  }
 }
 
 class SmithChartPainter extends CustomPainter {
   final List<SmithPath> paths;
   final bool showAdmittance;
   // [新增] 接收固定点
-  final Complex? zOriginal;
+  final Complex? zInitial;
   final Complex? zTarget;
   final double z0;
 
   SmithChartPainter({
     required this.paths,
     required this.showAdmittance,
-    required this.zOriginal,
+    required this.zInitial,
     required this.zTarget,
     required this.z0,
   });
@@ -167,14 +203,19 @@ class SmithChartPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final double radius = size.width / 2;
-    final Offset center = Offset(size.width / 2, size.height / 2);
+    final Offset center = Offset(radius, radius);
     final double scale = radius;
 
+    // Clip to circle
     Path clipPath = Path()..addOval(Rect.fromCircle(center: center, radius: scale));
     canvas.save();
     canvas.clipPath(clipPath);
 
     _drawGrid(canvas, center, scale);
+
+    // 画 Initial/Target 的等电阻圆 + 等电抗线（高亮，虚线 + 颜色避冲突 + 数值标注）
+    _drawKeyPointImpedanceGuides(canvas, center, scale);
+
     _drawActiveCircles(canvas, center, scale);
     _drawTrajectories(canvas, center, scale);
 
@@ -184,7 +225,7 @@ class SmithChartPainter extends CustomPainter {
 
     _drawAxisLabels(canvas, center, scale);
 
-    // [修改] 绘制关键点 (包含无解时的起终点)
+    // 绘制关键点 (包含无解时的起终点)
     _drawKeyPoints(canvas, center, scale);
   }
 
@@ -195,17 +236,197 @@ class SmithChartPainter extends CustomPainter {
 
     canvas.drawLine(center + Offset(-scale, 0), center + Offset(scale, 0), axisPaint);
     for (double r in rCircles) {
-      double cx = r / (1 + r); double cr = 1 / (1 + r);
+      double cx = r / (1 + r);
+      double cr = 1 / (1 + r);
       canvas.drawCircle(_gammaToOffset(Complex(cx, 0), center, scale), cr * scale, rPaint);
     }
     for (double x in xArcs) {
-      _drawArcCircle(canvas, center, scale, 1.0, 1/x, 1/x, xPaint);
-      _drawArcCircle(canvas, center, scale, 1.0, -1/x, 1/x, xPaint);
+      _drawArcCircle(canvas, center, scale, 1.0, 1 / x, 1 / x, xPaint);
+      _drawArcCircle(canvas, center, scale, 1.0, -1 / x, 1 / x, xPaint);
+    }
+
+    // 导纳网格（等电导圆 + 等电纳线）
+    if (showAdmittance) {
+      _drawAdmittanceGrid(canvas, center, scale);
+    }
+  }
+
+  Complex? _getStartGamma() {
+    if (zInitial != null) {
+      final normZ = zInitial! / Complex(z0, 0);
+      return _zToGamma_Normalized(normZ);
+    }
+    if (paths.isNotEmpty) return paths.first.startGamma;
+    return null;
+  }
+
+  Complex? _getTargetGamma() {
+    if (zTarget != null) {
+      final normZ = zTarget! / Complex(z0, 0);
+      return _zToGamma_Normalized(normZ);
+    }
+    if (paths.isNotEmpty) return paths.last.endGamma;
+    return null;
+  }
+
+  // ---------- 虚线工具 ----------
+  void _drawDashedPath(Canvas canvas, Path path, Paint paint,
+      {double dash = 8, double gap = 6}) {
+    for (final metric in path.computeMetrics()) {
+      double dist = 0.0;
+      while (dist < metric.length) {
+        final double len = min(dash, metric.length - dist);
+        final Path extract = metric.extractPath(dist, dist + len);
+        canvas.drawPath(extract, paint);
+        dist += dash + gap;
+      }
+    }
+  }
+
+  void _drawDashedCircle(Canvas canvas, Offset c, double r, Paint paint,
+      {double dash = 8, double gap = 6}) {
+    final Path p = Path()..addOval(Rect.fromCircle(center: c, radius: r));
+    _drawDashedPath(canvas, p, paint, dash: dash, gap: gap);
+  }
+
+  // ---------- 关键点引导线（等r圆 + 等x线）+ 数值标注 ----------
+  void _drawKeyPointImpedanceGuides(Canvas canvas, Offset center, double scale) {
+    final Complex? startGamma = _getStartGamma();
+    final Complex? targetGamma = _getTargetGamma();
+
+    // 颜色策略：避开导纳网格(绿/紫)，用 teal / deepOrange；并用虚线区分“引导线”
+    final Paint initialPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..color = Colors.teal[800]!.withOpacity(0.80)
+      ..strokeWidth = 1.8;
+
+    final Paint targetPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..color = Colors.deepOrange[800]!.withOpacity(0.80)
+      ..strokeWidth = 1.8;
+
+    if (startGamma != null) {
+      _drawImpedanceGuidesForGamma(
+        canvas,
+        center,
+        scale,
+        startGamma,
+        initialPaint,
+        label: "Initial",
+        labelColor: Colors.teal[900]!,
+      );
+    }
+    if (targetGamma != null) {
+      _drawImpedanceGuidesForGamma(
+        canvas,
+        center,
+        scale,
+        targetGamma,
+        targetPaint,
+        label: "Target",
+        labelColor: Colors.deepOrange[900]!,
+      );
+    }
+  }
+
+  void _drawImpedanceGuidesForGamma(
+      Canvas canvas,
+      Offset center,
+      double scale,
+      Complex gamma,
+      Paint paint, {
+        required String label,
+        required Color labelColor,
+      }) {
+    // Γ -> 归一化阻抗 z = r + jx（Smith 网格默认就是归一化）
+    final Complex z = _gammaToZ_Normalized(gamma);
+    final double r = z.real;
+    final double x = z.imaginary;
+
+    // 1) 等电阻圆（constant r circle）：圆心 (r/(1+r),0)，半径 1/(1+r)
+    if (r > -0.999) {
+      final double cx = r / (1 + r);
+      final double cr = 1 / (1 + r);
+      final Offset cc = _gammaToOffset(Complex(cx, 0), center, scale);
+      _drawDashedCircle(canvas, cc, cr * scale, paint);
+    }
+
+    // 2) 等电抗线（constant x arc）：圆心 (1, 1/x)，半径 1/|x|
+    if (x.abs() > 1e-3) {
+      final double u = 1.0;
+      final double v = 1 / x;             // 带符号
+      final double radius = 1 / x.abs();  // 半径为正
+      final Offset cc = _gammaToOffset(Complex(u, v), center, scale);
+      _drawDashedCircle(canvas, cc, radius * scale, paint);
+    }
+
+    // 3) 数值标注：在点旁标 r/x（归一化值，与网格一致）
+    final Offset p = _gammaToOffset(gamma, center, scale);
+    final String txt = "$label  r=${r.toStringAsFixed(2)}, x=${x.toStringAsFixed(2)}";
+
+    // 简单避让：如果点在下半圈且靠近底部，标签强制往上放，减少与图例挤压
+    double dy = (gamma.imaginary >= 0) ? -18 : 18;
+    if (p.dy > center.dy + scale * 0.55) {
+      dy = -24;
+    } else if (p.dy < center.dy - scale * 0.55) {
+      dy = 24;
+    }
+
+    // 向右偏一点，避免压到点和轨迹（你也可以改 65/70 来微调）
+    final Offset pos = p + Offset(70, dy);
+
+    _drawText(
+      canvas,
+      txt,
+      pos,
+      style: TextStyle(
+        color: labelColor,
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        backgroundColor: Colors.white.withOpacity(0.55),
+      ),
+    );
+  }
+
+  void _drawAdmittanceGrid(Canvas canvas, Offset center, double scale) {
+    // 说明：
+    // 等电导圆（constant g）：圆心 (-g/(1+g), 0)，半径 1/(1+g)
+    // 等电纳线（constant b）：圆心 (-1, ±1/b)，半径 1/|b|
+
+    final Paint gPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..color = Colors.greenAccent.withOpacity(0.45)
+      ..strokeWidth = 1.4;
+
+    final Paint bPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..color = Colors.purpleAccent.withOpacity(0.45)
+      ..strokeWidth = 1.4;
+
+    // 等电导圆（g circles）
+    for (double g in rCircles) {
+      if (g == 0) continue; // g=0 对应单位圆（外圈已绘制），避免重复
+      double cx = -g / (1 + g);
+      double cr = 1 / (1 + g);
+      canvas.drawCircle(
+        _gammaToOffset(Complex(cx, 0), center, scale),
+        cr * scale,
+        gPaint,
+      );
+    }
+
+    // 等电纳线（b arcs）
+    for (double b in xArcs) {
+      _drawArcCircle(canvas, center, scale, -1.0, 1 / b, 1 / b, bPaint);
+      _drawArcCircle(canvas, center, scale, -1.0, -1 / b, 1 / b, bPaint);
     }
   }
 
   void _drawTrajectories(Canvas canvas, Offset center, double scale) {
-    final Paint pathPaint = Paint()..style = PaintingStyle.stroke..strokeWidth = 3.0..strokeCap = StrokeCap.round;
+    final Paint pathPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0
+      ..strokeCap = StrokeCap.round;
 
     for (var path in paths) {
       if (path.type == PathType.shunt) {
@@ -219,7 +440,9 @@ class SmithChartPainter extends CustomPainter {
 
       if (points.isNotEmpty) {
         drawPath.moveTo(points.first.dx, points.first.dy);
-        for (var p in points) drawPath.lineTo(p.dx, p.dy);
+        for (var p in points) {
+          drawPath.lineTo(p.dx, p.dy);
+        }
       }
       canvas.drawPath(drawPath, pathPaint);
 
@@ -247,40 +470,131 @@ class SmithChartPainter extends CustomPainter {
       for (int i = 0; i <= steps; i++) {
         double t = i / steps;
         double currentPhase = startPhase - diff * t;
-        points.add(_gammaToOffset(Complex(r * cos(currentPhase), r * sin(currentPhase)), center, scale));
+        points.add(_gammaToOffset(
+          Complex(r * cos(currentPhase), r * sin(currentPhase)),
+          center,
+          scale,
+        ));
+      }
+      return points;
+    }
+
+    // series/shunt 需要在 Z 或 Y 平面插值
+    Complex zStart = _gammaToZ_Normalized(path.startGamma);
+    Complex zEnd = _gammaToZ_Normalized(path.endGamma);
+
+    if (path.type == PathType.series) {
+      double rConst = zStart.real;
+      double xStart = zStart.imaginary;
+      double xEnd = zEnd.imaginary;
+      for (int i = 0; i <= steps; i++) {
+        double t = i / steps;
+        double x = xStart + (xEnd - xStart) * t;
+        points.add(_gammaToOffset(_zToGamma_Normalized(Complex(rConst, x)), center, scale));
       }
     } else {
-      Complex zStart = _gammaToZ_Normalized(path.startGamma);
-      Complex zEnd = _gammaToZ_Normalized(path.endGamma);
-
-      if (path.type == PathType.series) {
-        double rConst = zStart.real;
-        double xStart = zStart.imaginary;
-        double xEnd = zEnd.imaginary;
-        for (int i = 0; i <= steps; i++) {
-          double t = i / steps;
-          double x = xStart + (xEnd - xStart) * t;
-          points.add(_gammaToOffset(_zToGamma_Normalized(Complex(rConst, x)), center, scale));
-        }
-      } else { // Shunt
-        Complex yStart = Complex(1,0)/zStart;
-        Complex yEnd = Complex(1,0)/zEnd;
-        double gConst = yStart.real;
-        double bStart = yStart.imaginary;
-        double bEnd = yEnd.imaginary;
-        for (int i = 0; i <= steps; i++) {
-          double t = i / steps;
-          double b = bStart + (bEnd - bStart) * t;
-          points.add(_gammaToOffset(_zToGamma_Normalized(Complex(1,0)/Complex(gConst, b)), center, scale));
-        }
+      // Shunt：在导纳平面插值
+      Complex yStart = Complex(1, 0) / zStart;
+      Complex yEnd = Complex(1, 0) / zEnd;
+      double gConst = yStart.real;
+      double bStart = yStart.imaginary;
+      double bEnd = yEnd.imaginary;
+      for (int i = 0; i <= steps; i++) {
+        double t = i / steps;
+        double b = bStart + (bEnd - bStart) * t;
+        Complex y = Complex(gConst, b);
+        Complex z = Complex(1, 0) / y;
+        points.add(_gammaToOffset(_zToGamma_Normalized(z), center, scale));
       }
     }
+
     return points;
+  }
+
+  void _drawArrow(Canvas canvas, Offset pos, Offset vec, Color color) {
+    final double arrowSize = 8;
+    final angle = atan2(vec.dy, vec.dx);
+
+    Path arrow = Path();
+    arrow.moveTo(pos.dx, pos.dy);
+    arrow.lineTo(
+      pos.dx - arrowSize * cos(angle - pi / 6),
+      pos.dy - arrowSize * sin(angle - pi / 6),
+    );
+    arrow.moveTo(pos.dx, pos.dy);
+    arrow.lineTo(
+      pos.dx - arrowSize * cos(angle + pi / 6),
+      pos.dy - arrowSize * sin(angle + pi / 6),
+    );
+
+    canvas.drawPath(
+      arrow,
+      Paint()
+        ..color = color
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke,
+    );
+  }
+
+  Offset _gammaToOffset(Complex gamma, Offset center, double scale) {
+    return center + Offset(gamma.real * scale, -gamma.imaginary * scale);
+  }
+
+  Complex _zToGamma_Normalized(Complex normZ) {
+    return (normZ - Complex(1, 0)) / (normZ + Complex(1, 0));
+  }
+
+  Complex _gammaToZ_Normalized(Complex gamma) {
+    return (Complex(1, 0) + gamma) / (Complex(1, 0) - gamma);
+  }
+
+  void _drawArcCircle(Canvas canvas, Offset center, double scale, double u, double v, double r, Paint paint) {
+    Offset circleCenter = _gammaToOffset(Complex(u, v), center, scale);
+    canvas.drawCircle(circleCenter, r * scale, paint);
+  }
+
+  // 绘制关键点逻辑
+  void _drawKeyPoints(Canvas canvas, Offset center, double scale) {
+    Paint p = Paint()..style = PaintingStyle.fill;
+
+    // 1. 绘制 起点 (绿色)
+    if (zInitial != null) {
+      p.color = Colors.green;
+      Complex normZ = zInitial! / Complex(z0, 0);
+      Complex gamma = _zToGamma_Normalized(normZ);
+      canvas.drawCircle(_gammaToOffset(gamma, center, scale), 4.5, p);
+    } else if (paths.isNotEmpty) {
+      p.color = Colors.green;
+      canvas.drawCircle(_gammaToOffset(paths.first.startGamma, center, scale), 4.5, p);
+    }
+
+    // 2. 绘制 终点 (红色)
+    if (zTarget != null) {
+      p.color = Colors.red;
+      Complex normZt = zTarget! / Complex(z0, 0);
+      Complex gammaT = _zToGamma_Normalized(normZt);
+      canvas.drawCircle(_gammaToOffset(gammaT, center, scale), 4.5, p);
+    } else if (paths.isNotEmpty) {
+      p.color = Colors.red;
+      canvas.drawCircle(_gammaToOffset(paths.last.endGamma, center, scale), 4.5, p);
+    }
+
+    // 3. 绘制 中间点 (黑)
+    if (paths.length >= 2) {
+      p.color = Colors.black54;
+      canvas.drawCircle(_gammaToOffset(paths.first.endGamma, center, scale), 4.5, p);
+    }
   }
 
   void _drawAxisLabels(Canvas canvas, Offset center, double scale) {
     final double fontSize = 10.0;
-    final rStyle = TextStyle(color: Colors.red[900], fontSize: fontSize, fontWeight: FontWeight.bold);
+
+    // ===== 阻抗网格标注：r（红） =====
+    final rStyle = TextStyle(
+      color: Colors.red[900],
+      fontSize: fontSize,
+      fontWeight: FontWeight.bold,
+    );
 
     _drawText(canvas, "0", center + Offset(-scale + 8, -8), style: rStyle);
     _drawText(canvas, "∞", center + Offset(scale - 8, -8), style: rStyle);
@@ -292,16 +606,73 @@ class SmithChartPainter extends CustomPainter {
       _drawText(canvas, r.toString(), center + Offset(u * scale, -6), style: rStyle);
     }
 
-    final xStyle = TextStyle(color: Colors.blue[900], fontSize: fontSize, fontWeight: FontWeight.bold);
+    // ===== 阻抗网格标注：x（蓝） =====
+    final xStyle = TextStyle(
+      color: Colors.blue[900],
+      fontSize: fontSize,
+      fontWeight: FontWeight.bold,
+    );
 
     for (double x in xArcs) {
-      Complex g = _zToGamma_Normalized(Complex(0, x));
-      Offset posUp = _gammaToOffset(g, center, scale * 1.08);
+      Complex gUp = _zToGamma_Normalized(Complex(0, x));
+      Offset posUp = _gammaToOffset(gUp, center, scale * 1.08);
       _drawText(canvas, "${x}j", posUp, style: xStyle);
 
       Complex gDown = _zToGamma_Normalized(Complex(0, -x));
       Offset posDown = _gammaToOffset(gDown, center, scale * 1.08);
       _drawText(canvas, "-${x}j", posDown, style: xStyle);
+    }
+
+    // ===== 导纳网格标注（g / b） =====
+    if (showAdmittance) {
+      final gStyle = TextStyle(
+        color: Colors.green[800],
+        fontSize: fontSize,
+        fontWeight: FontWeight.bold,
+      );
+      // g = ∞（左端点） 和 g = 0（右端点）——放在实轴下方
+      _drawText(canvas, "∞", center + Offset(-scale + 10, 12), style: gStyle);
+      _drawText(canvas, "0", center + Offset(scale - 10, 12), style: gStyle);
+
+      for (double g in rCircles) {
+        if (g == 0) continue;
+        double u = (1 - g) / (1 + g);
+        if (u.abs() > 0.95) continue;
+        _drawText(canvas, g.toString(), center + Offset(u * scale, 10), style: gStyle);
+      }
+
+      final bStyle = TextStyle(
+        color: Colors.purple[800],
+        fontSize: fontSize,
+        fontWeight: FontWeight.bold,
+      );
+
+      Offset _shiftTangential(Offset pos, Offset center, double px) {
+        final dx = pos.dx - center.dx;
+        final dy = pos.dy - center.dy;
+        final len = sqrt(dx * dx + dy * dy);
+        if (len < 1e-6) return pos;
+        final tx = -dy / len;
+        final ty = dx / len;
+        return Offset(pos.dx + tx * px, pos.dy + ty * px);
+      }
+
+      for (double b in xArcs) {
+        const double bRadiusFactor = 0.92;
+        const double tangentShiftPx = 6.0;
+
+        // y = +jb -> z = -j/b
+        Complex gammaBPos = _zToGamma_Normalized(Complex(0, -1 / b));
+        Offset posBPos = _gammaToOffset(gammaBPos, center, scale * bRadiusFactor);
+        posBPos = _shiftTangential(posBPos, center, tangentShiftPx);
+        _drawText(canvas, "${b}j", posBPos, style: bStyle);
+
+        // y = -jb -> z = +j/b
+        Complex gammaBNeg = _zToGamma_Normalized(Complex(0, 1 / b));
+        Offset posBNeg = _gammaToOffset(gammaBNeg, center, scale * bRadiusFactor);
+        posBNeg = _shiftTangential(posBNeg, center, -tangentShiftPx);
+        _drawText(canvas, "-${b}j", posBNeg, style: bStyle);
+      }
     }
   }
 
@@ -314,96 +685,27 @@ class SmithChartPainter extends CustomPainter {
       } else if (path.type == PathType.shunt) {
         Complex z = _gammaToZ_Normalized(path.startGamma);
         if (z.abs() < 0.01) continue;
-        Complex y = Complex(1,0)/z;
+        Complex y = Complex(1, 0) / z;
         double g = y.real;
-        double cx = -g / (1+g); double cr = 1 / (1+g);
+        double cx = -g / (1 + g);
+        double cr = 1 / (1 + g);
         canvas.drawCircle(_gammaToOffset(Complex(cx, 0), center, scale), cr * scale, paint);
       } else if (path.type == PathType.series) {
         double r = _gammaToZ_Normalized(path.startGamma).real;
-        double cx = r / (1+r); double cr = 1 / (1+r);
+        double cx = r / (1 + r);
+        double cr = 1 / (1 + r);
         canvas.drawCircle(_gammaToOffset(Complex(cx, 0), center, scale), cr * scale, paint);
       }
     }
   }
 
-  void _drawArcCircle(Canvas canvas, Offset center, double scale, double u, double v, double r, Paint paint) {
-    Offset circleCenter = _gammaToOffset(Complex(u, v), center, scale);
-    canvas.drawCircle(circleCenter, r * scale, paint);
-  }
-
-  // [修改] 绘制关键点逻辑
-  void _drawKeyPoints(Canvas canvas, Offset center, double scale) {
-    Paint p = Paint()..style = PaintingStyle.fill;
-
-    // 1. 绘制 起点 (绿色)
-    // 优先使用传入的 zOriginal (这在 paths 为空时非常重要)
-    if (zOriginal != null) {
-      p.color = Colors.green;
-      // 先归一化，再转 Gamma
-      Complex normZ = zOriginal! / Complex(z0, 0);
-      Complex gamma = _zToGamma_Normalized(normZ);
-      canvas.drawCircle(_gammaToOffset(gamma, center, scale), 4.5, p);
-    } else if (paths.isNotEmpty) {
-      // 兼容旧逻辑
-      p.color = Colors.green;
-      canvas.drawCircle(_gammaToOffset(paths.first.startGamma, center, scale), 4.5, p);
-    }
-
-    // 2. 绘制 终点 (红色)
-    if (zTarget != null) {
-      p.color = Colors.red;
-      Complex normZ = zTarget! / Complex(z0, 0);
-      Complex gamma = _zToGamma_Normalized(normZ);
-      canvas.drawCircle(_gammaToOffset(gamma, center, scale), 4.5, p);
-    } else if (paths.isNotEmpty) {
-      p.color = Colors.red;
-      canvas.drawCircle(_gammaToOffset(paths.last.endGamma, center, scale), 4.5, p);
-    }
-
-    // 3. 绘制 中间点 (灰色)
-    if (paths.length > 1) {
-      p.color = Colors.grey[700]!;
-      for(int i=0; i < paths.length - 1; i++) {
-        canvas.drawCircle(_gammaToOffset(paths[i].endGamma, center, scale), 4.0, p);
-      }
-    }
-  }
-
-  void _drawArrow(Canvas canvas, Offset pos, Offset vector, Color color) {
-    double angle = atan2(vector.dy, vector.dx);
-    canvas.save(); canvas.translate(pos.dx, pos.dy); canvas.rotate(angle);
-    Path path = Path()..moveTo(0, 0)..lineTo(-7, -4)..lineTo(-7, 4)..close();
-    canvas.drawPath(path, Paint()..color = color);
-    canvas.restore();
-  }
-
   void _drawText(Canvas canvas, String text, Offset pos, {TextStyle? style}) {
-    final textStyle = style ?? TextStyle(color: Colors.black, fontSize: 10);
-
-    TextPainter tp = TextPainter(
-        text: TextSpan(text: text, style: textStyle),
-        textDirection: TextDirection.ltr
-    );
+    final textSpan = TextSpan(text: text, style: style ?? const TextStyle(fontSize: 10, color: Colors.black));
+    final tp = TextPainter(text: textSpan, textDirection: TextDirection.ltr);
     tp.layout();
-    tp.paint(canvas, pos - Offset(tp.width/2, tp.height/2));
+    tp.paint(canvas, pos - Offset(tp.width / 2, tp.height / 2));
   }
 
-  Offset _gammaToOffset(Complex g, Offset center, double scale) {
-    if (g.real.isNaN || g.imaginary.isNaN) return center;
-    double u = g.real.clamp(-2.0, 2.0); double v = g.imaginary.clamp(-2.0, 2.0);
-    return center + Offset(u * scale, -v * scale);
-  }
-
-  // 内部辅助：处理归一化阻抗
-  Complex _gammaToZ_Normalized(Complex g) {
-    if ((Complex(1,0)-g).abs() < 1e-5) return Complex(1000, 0);
-    return (Complex(1,0)+g)/(Complex(1,0)-g);
-  }
-
-  Complex _zToGamma_Normalized(Complex z) {
-    if (z.real.isInfinite) return Complex(1,0);
-    return (z - Complex(1,0))/(z + Complex(1,0));
-  }
-
-  @override bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

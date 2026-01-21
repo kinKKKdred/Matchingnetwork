@@ -28,11 +28,11 @@ class TMatchingCalculator {
     // 1. 数据准备
     double f = data.frequency;
     double omega = 2 * pi * f;
-    Complex zS = data.zOriginal ?? Complex(50, 0);
+    Complex zS = data.zInitial ?? Complex(50, 0);
     Complex zL = data.zTarget ?? Complex(50, 0);
 
     steps.add(r'\textbf{Step 1. System Analysis:}');
-    steps.add(r'Z_{ori} = ' + outputNum(zS) + r'\;\Omega, \quad Z_{tar} = ' + outputNum(zL) + r'\;\Omega');
+    steps.add(r'Z_{Init} = ' + outputNum(zS) + r'\;\Omega, \quad Z_{tar} = ' + outputNum(zL) + r'\;\Omega');
 
     // 2. 确定 Q 值与虚拟电阻 Rv
     double R_src = zS.real;
@@ -134,7 +134,7 @@ class TMatchingCalculator {
     }
 
     // ================= 6. 生成史密斯图路径 =================
-    // Path 1: Series 1 (Z_ori + jX_net1) -> Z_mid1
+    // Path 1: Series 1 (Z_Init + jX_net1) -> Z_mid1
     Complex zMid1 = zS + Complex(0, X_net1);
     paths.add(SmithPath(
         startGamma: _zToGamma(zS),
