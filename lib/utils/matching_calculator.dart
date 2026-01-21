@@ -9,7 +9,7 @@ import '../utils/complex_utils.dart'; // 假设这里有 outputNum 和 toLatexSc
 // 拓扑类型枚举
 enum LTopologyType {
   seriesFirst, // 串联后并联
-  shuntFirst,  // 并联后串联
+  shuntFirst, // 并联后串联
 }
 
 // 单个解的数据结构
@@ -44,286 +44,426 @@ class MatchingResult {
 
 /// L型网络匹配计算器 (完整版：包含鲁棒性修复 + 直通检测 + 完整计算逻辑)
 class MatchingCalculator {
+  // ================= LaTeX-safe helpers (for StepCardDisplay / Math.tex) =================
+  static const double _kEps = 1e-9;
+
+  static String _latexNum(num v, {int digits = 3}) {
+    if (v.abs() < 1e-12) return '0';
+    return toLatexScientific(v, digits: digits);
+  }
+
+  static String _latexComplex(Complex c, {int digits = 3}) {
+    final double re = c.real;
+    final double im = c.imaginary;
+
+    if (im.abs() < 1e-12) return _latexNum(re, digits: digits);
+    if (re.abs() < 1e-12) return '${_latexNum(im, digits: digits)}\\,\\mathrm{j}';
+
+    final String sign = im >= 0 ? '+' : '-';
+    return '${_latexNum(re, digits: digits)} $sign ${_latexNum(im.abs(), digits: digits)}\\,\\mathrm{j}';
+  }
 
   static MatchingResult calculateLMatch(ImpedanceData data) {
-    // ================= 1. 公共预处理 (输入转换与归一化) =================
-    List<String> commonSteps = [];
+    // ================= Scheme 1 (Common steps + all solutions) =================
+    final List<String> commonSteps = [];
     Complex zInitial, zTarget;
 
-    // 解析输入
-    if (data.zInitial != null && data.zTarget != null) {
+    final bool hasZ = (data.zInitial != null && data.zTarget != null);
+    final bool hasGamma = (data.gammaInitial != null && data.gammaTarget != null);
+
+    // ---------- Step 0 (optional): Γ -> Z ----------
+    if (hasZ) {
       zInitial = data.zInitial!;
       zTarget = data.zTarget!;
-    } else if (data.gammaInitial != null && data.gammaTarget != null) {
+    } else if (hasGamma) {
       zInitial = gammaToZ(data.gammaInitial!, data.z0);
       zTarget = gammaToZ(data.gammaTarget!, data.z0);
-      commonSteps.add(r'\textbf{Step 0. Convert Reflection Coefficient to Impedance:}');
-      commonSteps.add(r'Z_\mathrm{Init} = Z_0 \frac{1+\Gamma_\mathrm{Init}}{1-\Gamma_\mathrm{Init}} = ' + outputNum(zInitial, precision: 3) + r'\;\Omega');
-      commonSteps.add(r'Z_\mathrm{tar} = Z_0 \frac{1+\Gamma_\mathrm{tar}}{1-\Gamma_\mathrm{tar}} = ' + outputNum(zTarget, precision: 3) + r'\;\Omega');
+
+      commonSteps.add(r'\textbf{Step 0. Convert \Gamma to Z:}');
+      commonSteps.add(r'Z_{\mathrm{init}} = Z_0 \frac{1+\Gamma_{\mathrm{init}}}{1-\Gamma_{\mathrm{init}}} = ' +
+          _latexComplex(zInitial, digits: 4) + r'\,\Omega');
+      commonSteps.add(r'Z_{\mathrm{tar}} = Z_0 \frac{1+\Gamma_{\mathrm{tar}}}{1-\Gamma_{\mathrm{tar}}} = ' +
+          _latexComplex(zTarget, digits: 4) + r'\,\Omega');
     } else {
-      throw Exception('Input incomplete');
+      throw Exception('Input incomplete: provide (Zinitial,Ztarget) or (Γinitial,Γtarget).');
     }
 
-    // ================= [NEW 1] 检查是否无需匹配 (Already Matched) =================
-    // 阈值：如果两个阻抗的差异小于 0.05 欧姆，认为是一样的
-    if ((zInitial - zTarget).abs() < 0.05) {
-      List<String> infoSteps = [];
-      infoSteps.add(r'\textbf{Status: Already Matched}');
-      infoSteps.add(r'\text{The source impedance is sufficiently close to the target impedance.}');
-      infoSteps.add(r'\Delta Z = |Z_\mathrm{Init} - Z_\mathrm{tar}| \approx 0');
-      infoSteps.add(r'\text{No matching network is required (Direct Connection).}');
+    // ---------- Step 1: Problem & Target ----------
+    commonSteps.add(r'\textbf{Step 1. Problem \& Target:}');
+    commonSteps.add(r'Z_0=' + _latexNum(data.z0, digits: 3) + r'\,\Omega,\quad f=' + _latexNum(data.frequency, digits: 3) + r'\,\mathrm{Hz}');
+    commonSteps.add(r'Z_{\mathrm{init}}=' + _latexComplex(zInitial, digits: 4) + r'\,\Omega');
+    commonSteps.add(r'Z_{\mathrm{tar}}=' + _latexComplex(zTarget, digits: 4) + r'\,\Omega');
 
-      // 构造一个“已匹配”的解
-      LMatchSolution matchedSolution = LMatchSolution(
+    // ---------- Step 2: Normalize ----------
+    final Complex z1 = zInitial / Complex(data.z0, 0); // normalized z_init
+    final Complex z2 = zTarget / Complex(data.z0, 0);  // normalized z_tar
+    final Complex y1 = Complex(1, 0) / z1;
+    final Complex y2 = Complex(1, 0) / z2;
+
+    commonSteps.add(r'\textbf{Step 2. Normalize (z,y):}');
+    commonSteps.add(r'z_{\mathrm{init}}=Z_{\mathrm{init}}/Z_0=' + _latexComplex(z1) + r',\quad z_{\mathrm{tar}}=' + _latexComplex(z2));
+    commonSteps.add(r'y_{\mathrm{init}}=1/z_{\mathrm{init}}=' + _latexComplex(y1) + r',\quad y_{\mathrm{tar}}=' + _latexComplex(y2));
+
+    // ---------- Step 3: Special case (Already matched) ----------
+    if ((zInitial - zTarget).abs() < 0.05) {
+      commonSteps.add(r'\textbf{Step 3. Conclusion: Direct connect}');
+      commonSteps.add(r'\text{Because } Z_{\mathrm{init}} \approx Z_{\mathrm{tar}}, \text{ no matching components are required.}');
+
+      final LMatchSolution matchedSolution = LMatchSolution(
         title: "No Match Needed",
-        topologyType: LTopologyType.seriesFirst, // 占位
-        values: {}, // 空元件值，UI会自动隐藏电路图
-        steps: infoSteps,
-        paths: [], // 空轨迹，UI只会画起点和终点（重合）
+        topologyType: LTopologyType.seriesFirst, // placeholder
+        values: {},
+        steps: const [], // keep empty to avoid being treated as "infeasible" by UI
+        paths: const [],
         filterType: "Direct Connect",
       );
-
       return MatchingResult(solutions: [matchedSolution], commonSteps: commonSteps);
     }
 
-    // ================= [NEW 2] 鲁棒性保护：纯虚部输入检查 =================
-    // 修复 Bug：当 Z_initial 实部为 0 (纯电抗) 且 Z_target 实部 > 0 时，L型网络无解。
+    // ---------- Step 4: Feasibility guard (pure reactance -> resistive target) ----------
     const double epsilon = 1e-6;
-
-    // 检查条件：起点是纯虚部 (R ≈ 0) 且 终点有实部 (R > 0)
     if (zInitial.real.abs() < epsilon && zTarget.real.abs() > epsilon) {
-      List<String> errorSteps = [];
-      errorSteps.add(r'\textbf{Feasibility Check Failed:}');
-      errorSteps.add(r'\color{red}{\text{Error: Cannot match a pure reactance source (R=0) to a resistive load (R>0) using lossless L-networks.}}');
-      errorSteps.add(r'\text{Reason: L-networks assume finite Q factors. Pure reactance implies infinite Q.}');
-      errorSteps.add(r'\text{Visual Check: Notice the Start Point is on the outermost circle (R=0), while Target is inside. No path can bridge them.}');
+      final List<String> errorSteps = [];
+      errorSteps.add(r'\textbf{Step 6. Conclusion: No Solution (Feasibility failed)}');
+      errorSteps.add(r'\text{Lossless L-networks cannot match a purely reactive start }(R\approx0)\text{ to a resistive target }(R>0).');
 
-      LMatchSolution errorSolution = LMatchSolution(
+      final LMatchSolution errorSolution = LMatchSolution(
         title: "Infeasible Case",
         topologyType: LTopologyType.seriesFirst,
-        values: {}, // 没有元件值
+        values: {},
         steps: errorSteps,
-        paths: [], // 空轨迹
+        paths: const [],
         filterType: "No Solution",
       );
-
       return MatchingResult(solutions: [errorSolution], commonSteps: commonSteps);
     }
-    // ================= [结束] 鲁棒性保护 =================
 
-    // 归一化
-    final z1 = zInitial / Complex(data.z0, 0);
-    final z2 = zTarget / Complex(data.z0, 0);
-    commonSteps.add(r'\textbf{Step 1. Normalize Impedances:}');
-    commonSteps.add(r'z_\mathrm{Init} = \frac{Z_\mathrm{Init}}{Z_0} = ' + outputNum(z1, precision: 3));
-    commonSteps.add(r'z_\mathrm{tar} = \frac{Z_\mathrm{tar}}{Z_0} = ' + outputNum(z2, precision: 3));
+    // ---------- Step 3: Strategy ----------
+    commonSteps.add(r'\textbf{Step 3. Strategy (two topologies):}');
+    commonSteps.add(r'\text{Try both: Series}\rightarrow\text{Shunt and Shunt}\rightarrow\text{Series.}');
+    commonSteps.add(r'\text{We pick an intermediate point where the real part matches, then cancel the imaginary part.}');
 
-    List<LMatchSolution> solutions = [];
+    // ---------- Step 4: Intermediate conditions ----------
+    commonSteps.add(r'\textbf{Step 4. Intermediate conditions:}');
+    commonSteps.add(r'\text{Series}\rightarrow\text{Shunt: choose } z_{\mathrm{mid}}=r_1+jx \text{ such that } \Re(1/z_{\mathrm{mid}})=\Re(y_{\mathrm{tar}}).');
+    commonSteps.add(r'\text{Shunt}\rightarrow\text{Series: choose } y_{\mathrm{mid}}=g_1+jb \text{ such that } \Re(1/y_{\mathrm{mid}})=\Re(z_{\mathrm{tar}}).');
 
-    // ================= 2. 尝试计算所有可能的解 =================
+    // ---------- Step 5: Root count & feasibility ----------
+    commonSteps.add(r'\textbf{Step 5. Root count (two / single / none):}');
 
-    // --- 尝试拓扑 A: Series First (串联 -> 并联) ---
-    // 判别式: r1 < Re(Z_parallel_equivalent_of_target)
-    double r1 = z1.real;
-    Complex y2 = Complex(1,0) / z2;
-    double g2 = y2.real;
+    // We'll store temporary results with metadata, then assign titles at the end.
+    final List<Map<String, dynamic>> temp = [];
 
-    // 判别式：Series First 有解的条件
-    double discriminantSeries = r1 / g2 - r1 * r1;
-
-    if (discriminantSeries >= -1e-9) { // 允许微小误差
-      double xMid_base = sqrt(max(0, discriminantSeries));
-
-      // 解 1: 正根
-      solutions.add(_calculateSingleSolution(
-          data: data, z1: z1, z2: z2,
-          topology: LTopologyType.seriesFirst,
-          rootValue: xMid_base,
-          isPositiveRoot: true
-      ));
-
-      // 解 2: 负根 (如果根不为0)
-      if (xMid_base > 1e-9) {
-        solutions.add(_calculateSingleSolution(
-            data: data, z1: z1, z2: z2,
-            topology: LTopologyType.seriesFirst,
-            rootValue: -xMid_base,
-            isPositiveRoot: false
-        ));
-      }
-    } else {
-      commonSteps.add(r'\text{Note: Series-first topology (Series } \to \text{ Shunt) has no solution for these impedances.}');
+    // --- Topology A: Series -> Shunt ---
+    final double r1 = z1.real;
+    final double g2 = y2.real;
+    double discSeries = -1;
+    if (g2.abs() >= _kEps) {
+      discSeries = r1 / g2 - r1 * r1;
     }
 
-    // --- 尝试拓扑 B: Shunt First (并联 -> 串联) ---
-    Complex y1 = Complex(1,0) / z1;
-    double g1 = y1.real;
-    double r2 = z2.real;
-
-    // 判别式
-    double discriminantShunt = g1 / r2 - g1 * g1;
-
-    if (discriminantShunt >= -1e-9) {
-      double bMid_base = sqrt(max(0, discriminantShunt));
-
-      // 解 3: 正根
-      solutions.add(_calculateSingleSolution(
-          data: data, z1: z1, z2: z2,
-          topology: LTopologyType.shuntFirst,
-          rootValue: bMid_base,
-          isPositiveRoot: true
-      ));
-
-      // 解 4: 负根
-      if (bMid_base > 1e-9) {
-        solutions.add(_calculateSingleSolution(
-            data: data, z1: z1, z2: z2,
-            topology: LTopologyType.shuntFirst,
-            rootValue: -bMid_base,
-            isPositiveRoot: false
-        ));
-      }
-    } else {
-      commonSteps.add(r'\text{Note: Shunt-first topology (Shunt } \to \text{ Series) has no solution for these impedances.}');
-    }
-
-    // 为解添加序号和标题
-    for(int i=0; i<solutions.length; i++) {
-      String filterGuess = _guessFilterType(solutions[i].values);
-      String topoName = solutions[i].topologyType == LTopologyType.seriesFirst ? "Series-First" : "Shunt-First";
-
-      solutions[i] = LMatchSolution(
-          title: "Solution ${i+1}: $topoName",
-          topologyType: solutions[i].topologyType,
-          values: solutions[i].values,
-          steps: solutions[i].steps,
-          paths: solutions[i].paths,
-          filterType: filterGuess
+    if (discSeries >= -1e-9) {
+      final double xMidBase = sqrt(max(0, discSeries));
+      commonSteps.add(
+          xMidBase <= 1e-9
+              ? (r'\text{Series}\rightarrow\text{Shunt: } \Delta_s=' + _latexNum(discSeries) + r'\Rightarrow \text{single solution.}')
+              : (r'\text{Series}\rightarrow\text{Shunt: } \Delta_s=' + _latexNum(discSeries) + r'\Rightarrow \text{two solutions.}')
       );
+
+      final solP = _calculateSingleSolution(
+        data: data,
+        z1: z1,
+        z2: z2,
+        topology: LTopologyType.seriesFirst,
+        rootValue: xMidBase,
+        isPositiveRoot: true,
+      );
+      temp.add({'sol': solP, 'root': xMidBase});
+
+      if (xMidBase > 1e-9) {
+        final solN = _calculateSingleSolution(
+          data: data,
+          z1: z1,
+          z2: z2,
+          topology: LTopologyType.seriesFirst,
+          rootValue: -xMidBase,
+          isPositiveRoot: false,
+        );
+        temp.add({'sol': solN, 'root': -xMidBase});
+      }
+    } else {
+      commonSteps.add(r'\text{Series}\rightarrow\text{Shunt: } \Delta_s=' + _latexNum(discSeries) + r'\Rightarrow \text{no real solution.}');
     }
 
-    return MatchingResult(
-      solutions: solutions,
-      commonSteps: commonSteps,
-    );
+    // --- Topology B: Shunt -> Series ---
+    final double g1 = y1.real;
+    final double r2 = z2.real;
+    double discShunt = -1;
+    if (r2.abs() >= _kEps) {
+      discShunt = g1 / r2 - g1 * g1;
+    }
+
+    if (discShunt >= -1e-9) {
+      final double bMidBase = sqrt(max(0, discShunt));
+      commonSteps.add(
+          bMidBase <= 1e-9
+              ? (r'\text{Shunt}\rightarrow\text{Series: } \Delta_p=' + _latexNum(discShunt) + r'\Rightarrow \text{single solution.}')
+              : (r'\text{Shunt}\rightarrow\text{Series: } \Delta_p=' + _latexNum(discShunt) + r'\Rightarrow \text{two solutions.}')
+      );
+
+      final solP = _calculateSingleSolution(
+        data: data,
+        z1: z1,
+        z2: z2,
+        topology: LTopologyType.shuntFirst,
+        rootValue: bMidBase,
+        isPositiveRoot: true,
+      );
+      temp.add({'sol': solP, 'root': bMidBase});
+
+      if (bMidBase > 1e-9) {
+        final solN = _calculateSingleSolution(
+          data: data,
+          z1: z1,
+          z2: z2,
+          topology: LTopologyType.shuntFirst,
+          rootValue: -bMidBase,
+          isPositiveRoot: false,
+        );
+        temp.add({'sol': solN, 'root': -bMidBase});
+      }
+    } else {
+      commonSteps.add(r'\text{Shunt}\rightarrow\text{Series: } \Delta_p=' + _latexNum(discShunt) + r'\Rightarrow \text{no real solution.}');
+    }
+
+    // ---------- No solution ----------
+    if (temp.isEmpty) {
+      final List<String> errorSteps = [];
+      errorSteps.add(r'\textbf{Step 6. Conclusion: No Solution}');
+      errorSteps.add(r'\text{Both topologies yield no real intermediate point under lossless L-network constraints.}');
+
+      final LMatchSolution errorSolution = LMatchSolution(
+        title: "Infeasible Case",
+        topologyType: LTopologyType.seriesFirst,
+        values: {},
+        steps: errorSteps,
+        paths: const [],
+        filterType: "No Solution",
+      );
+      return MatchingResult(solutions: [errorSolution], commonSteps: commonSteps);
+    }
+
+    // ---------- Assign titles + filter types ----------
+    final List<LMatchSolution> solutions = [];
+    for (int i = 0; i < temp.length; i++) {
+      final LMatchSolution sol = temp[i]['sol'] as LMatchSolution;
+      final double root = temp[i]['root'] as double;
+
+      final String topoName = sol.topologyType == LTopologyType.seriesFirst ? "Series→Shunt" : "Shunt→Series";
+      final String rootLabel = (root.abs() <= 1e-9) ? "(single)" : (root > 0 ? "(+root)" : "(-root)");
+
+      solutions.add(LMatchSolution(
+        title: "Solution ${i + 1}: $topoName $rootLabel",
+        topologyType: sol.topologyType,
+        values: sol.values,
+        steps: sol.steps,
+        paths: sol.paths,
+        filterType: _guessFilterType(sol.values),
+      ));
+    }
+
+    return MatchingResult(solutions: solutions, commonSteps: commonSteps);
   }
 
-  // ================= 私有辅助函数：计算单个解并生成详细步骤 =================
   static LMatchSolution _calculateSingleSolution({
     required ImpedanceData data,
     required Complex z1,
     required Complex z2,
     required LTopologyType topology,
-    required double rootValue, // Series时为xMid, Shunt时为bMid
+    required double rootValue, // Series-first: x_mid; Shunt-first: b_mid
     required bool isPositiveRoot,
   }) {
-    List<String> steps = [];
-    List<SmithPath> smithPaths = [];
-    Map<String, double> componentValues = {};
+    final List<String> steps = [];
+    final List<SmithPath> smithPaths = [];
+    final Map<String, double> componentValues = {};
+
+    // For verification (absolute impedances)
+    final Complex Zinit = z1 * Complex(data.z0, 0);
+    final Complex Ztar = z2 * Complex(data.z0, 0);
+
+    double Xs_norm = 0.0; // normalized series reactance x_s
+    double B_norm = 0.0; // normalized shunt susceptance b_p
+    double Xs_real = 0.0; // ohms
+    double Xp_real = 0.0; // ohms (equivalent shunt reactance)
 
     Complex zMid;
-    double Xs_norm = 0, B_norm = 0; // 归一化值
-    double Xs_real = 0, Xp_real = 0; // 真实欧姆值
 
     if (topology == LTopologyType.seriesFirst) {
-      // ================= Series First 详细计算 =================
-      steps.add(r'\textbf{Step 2. Topology Selection (Series First):}');
-      steps.add(r'\text{We connect a Series element first, moving along the constant-resistance circle to an intermediate point } z_{mid} \text{, and then a Shunt element to reach } z_{tar}.');
+      // ================= Step 6 =================
+      steps.add(r'\textbf{Step 6. Topology (Solution): Series}\rightarrow\text{Shunt}');
+      steps.add(r'\text{Series element acts in }z\text{-domain; shunt element acts in }y\text{-domain.}');
 
-      // 1. 计算中间点
-      double r1 = z1.real;
-      double xMid = rootValue;
+      // Intermediate point: z_mid = r1 + j x_mid
+      final double r1 = z1.real;
+      final double xMid = rootValue;
       zMid = Complex(r1, xMid);
-      steps.add(r'\text{Calculated Intermediate Point (Intersection of circles):}');
-      steps.add(r'z_{mid} = ' + outputNum(zMid, precision: 3));
+      final Complex yMid = Complex(1, 0) / zMid;
+      final Complex yTar = Complex(1, 0) / z2;
 
-      // 2. 串联元件计算 (z1 -> zMid)
-      Complex diff = zMid - z1;
+      // ================= Step 7 =================
+      steps.add(r'\textbf{Step 7. Intermediate point:}');
+      steps.add(r'x_{\mathrm{mid}}=' + _latexNum(xMid));
+      steps.add(r'z_{\mathrm{mid}}=' + _latexComplex(zMid) + r',\quad y_{\mathrm{mid}}=1/z_{\mathrm{mid}}=' + _latexComplex(yMid));
+      steps.add(r'\Re(y_{\mathrm{mid}})\approx \Re(y_{\mathrm{tar}})=' + _latexNum(yTar.real));
+
+      // ================= Step 8 =================
+      steps.add(r'\textbf{Step 8. Series element (}z_{\mathrm{init}}\rightarrow z_{\mathrm{mid}}\text{):}');
+      final Complex diff = zMid - z1;
       Xs_norm = diff.imaginary;
       Xs_real = Xs_norm * data.z0;
 
-      steps.add(r'\textbf{Step 3. Calculate Series Element:}');
-      steps.add(r'\text{The series reactance required to move from } z_{Init} \text{ to } z_{mid} \text{ is:}');
-      steps.add(r'j x_s = z_{mid} - z_{Init} = (' + outputNum(zMid, precision: 2) + r') - (' + outputNum(z1, precision: 2) + r')');
-      steps.add(r'x_s = ' + outputNum(Xs_norm, precision: 3));
-      steps.add(r'X_{series} = x_s \times Z_0 = ' + outputNum(Xs_norm, precision: 3) + r' \times ' + outputNum(data.z0) + r' = ' + outputNum(Xs_real, precision: 2) + r'\;\Omega');
+      if (Xs_norm.abs() < _kEps) {
+        steps.add(r'x_s\approx 0 \Rightarrow \text{series element not required.}');
+      } else {
+        steps.add(r'x_s=\Im(z_{\mathrm{mid}}-z_{\mathrm{init}})=' + _latexNum(Xs_norm));
+        steps.add(r'X_s=x_s Z_0=' + _latexNum(Xs_real, digits: 4) + r'\,\Omega');
 
-      smithPaths.add(SmithPath(
-          startGamma: zToGamma(z1), endGamma: zToGamma(zMid),
-          type: PathType.series, label: Xs_real > 0 ? "L_ser" : "C_ser"
-      ));
+        smithPaths.add(SmithPath(
+          startGamma: zToGamma(z1),
+          endGamma: zToGamma(zMid),
+          type: PathType.series,
+          label: Xs_real > 0 ? "L_ser" : "C_ser",
+        ));
+      }
 
-      // 3. 并联元件计算 (zMid -> z2)
-      Complex y2 = Complex(1,0)/z2;
-      Complex yMid = Complex(1,0)/zMid;
-      Complex yDiff = y2 - yMid;
+      // ================= Step 9 =================
+      steps.add(r'\textbf{Step 9. Shunt element (}z_{\mathrm{mid}}\rightarrow z_{\mathrm{tar}}\text{):}');
+      final Complex yDiff = yTar - yMid;
       B_norm = yDiff.imaginary;
-      Xp_real = -data.z0 / B_norm;
 
-      steps.add(r'\textbf{Step 4. Calculate Shunt Element:}');
-      steps.add(r'\text{The shunt susceptance required to move from } z_{mid} \text{ to } z_{tar} \text{ is:}');
-      steps.add(r'j b_p = y_{tar} - y_{mid} = \frac{1}{z_{tar}} - \frac{1}{z_{mid}}');
-      steps.add(r'j b_p = (' + outputNum(y2, precision: 2) + r') - (' + outputNum(yMid, precision: 2) + r')');
-      steps.add(r'b_p = ' + outputNum(B_norm, precision: 3));
-      steps.add(r'\text{Convert susceptance to reactance: }');
-      steps.add(r'X_{shunt} = \frac{-1}{B_{real}} = \frac{-Z_0}{b_p} = \frac{-' + outputNum(data.z0) + r'}{' + outputNum(B_norm, precision: 3) + r'} = ' + outputNum(Xp_real, precision: 2) + r'\;\Omega');
+      if (B_norm.abs() < _kEps) {
+        steps.add(r'b_p\approx 0 \Rightarrow \text{shunt element not required.}');
+        Xp_real = 0.0;
+      } else {
+        // Xp_real = -Z0 / b_norm  (equivalent shunt reactance in ohms)
+        Xp_real = -data.z0 / B_norm;
+        steps.add(r'b_p=\Im(y_{\mathrm{tar}}-y_{\mathrm{mid}})=' + _latexNum(B_norm));
+        steps.add(r'X_p=-Z_0/b_p=' + _latexNum(Xp_real, digits: 4) + r'\,\Omega');
 
-      smithPaths.add(SmithPath(
-          startGamma: zToGamma(zMid), endGamma: zToGamma(z2),
-          type: PathType.shunt, label: Xp_real > 0 ? "L_sh" : "C_sh"
-      ));
+        smithPaths.add(SmithPath(
+          startGamma: zToGamma(zMid),
+          endGamma: zToGamma(z2),
+          type: PathType.shunt,
+          label: Xp_real > 0 ? "L_sh" : "C_sh",
+        ));
+      }
 
+      // ================= Step 11 (Smith summary) =================
+      steps.add(r'\textbf{Step 11. Smith-chart actions (summary):}');
+      steps.add(r'\text{(1) Series: move on constant }r\text{ circle in }z\text{-chart.}');
+      steps.add(r'\text{(2) Shunt: move on constant }g\text{ circle in }y\text{-chart.}');
     } else {
-      // ================= Shunt First 详细计算 =================
-      steps.add(r'\textbf{Step 2. Topology Selection (Shunt First):}');
-      steps.add(r'\text{We connect a Shunt element first, moving along the constant-conductance circle to an intermediate point } z_{mid} \text{, and then a Series element to reach } z_{tar}.');
+      // ================= Step 6 =================
+      steps.add(r'\textbf{Step 6. Topology (Solution): Shunt}\rightarrow\text{Series}');
+      steps.add(r'\text{Shunt element acts in }y\text{-domain; series element acts in }z\text{-domain.}');
 
-      // 1. 计算中间点
-      double bMid = rootValue;
-      Complex y1 = Complex(1,0)/z1;
-      Complex yMid = Complex(y1.real, bMid);
-      zMid = Complex(1,0)/yMid;
+      final Complex yInit = Complex(1, 0) / z1;
+      final double g1 = yInit.real;
+      final double bMid = rootValue;
 
-      steps.add(r'\text{Calculated Intermediate Admittance } y_{mid} \text{ and Impedance } z_{mid}:');
-      steps.add(r'y_{mid} = ' + outputNum(yMid, precision: 3));
-      steps.add(r'z_{mid} = 1 / y_{mid} = ' + outputNum(zMid, precision: 3));
+      // Intermediate point: y_mid = g1 + j b_mid, then z_mid = 1/y_mid
+      final Complex yMid = Complex(g1, bMid);
+      zMid = Complex(1, 0) / yMid;
 
-      // 2. 并联元件计算 (y1 -> yMid)
-      Complex diff = yMid - y1;
-      B_norm = diff.imaginary;
-      Xp_real = -data.z0 / B_norm;
+      // ================= Step 7 =================
+      steps.add(r'\textbf{Step 7. Intermediate point:}');
+      steps.add(r'b_{\mathrm{mid}}=' + _latexNum(bMid));
+      steps.add(r'y_{\mathrm{mid}}=' + _latexComplex(yMid) + r',\quad z_{\mathrm{mid}}=1/y_{\mathrm{mid}}=' + _latexComplex(zMid));
+      steps.add(r'\Re(z_{\mathrm{mid}})\approx \Re(z_{\mathrm{tar}})=' + _latexNum(z2.real));
 
-      steps.add(r'\textbf{Step 3. Calculate Shunt Element:}');
-      steps.add(r'\text{The shunt susceptance to move from } y_{Init} \text{ to } y_{mid} \text{ is:}');
-      steps.add(r'j b_p = y_{mid} - y_{Init} = (' + outputNum(yMid, precision: 2) + r') - (' + outputNum(y1, precision: 2) + r')');
-      steps.add(r'b_p = ' + outputNum(B_norm, precision: 3));
-      steps.add(r'X_{shunt} = \frac{-Z_0}{b_p} = \frac{-' + outputNum(data.z0) + r'}{' + outputNum(B_norm, precision: 3) + r'} = ' + outputNum(Xp_real, precision: 2) + r'\;\Omega');
+      // ================= Step 8 =================
+      steps.add(r'\textbf{Step 8. Shunt element (}y_{\mathrm{init}}\rightarrow y_{\mathrm{mid}}\text{):}');
+      final Complex yDiff = yMid - yInit;
+      B_norm = yDiff.imaginary;
 
-      smithPaths.add(SmithPath(
-          startGamma: zToGamma(z1), endGamma: zToGamma(zMid),
-          type: PathType.shunt, label: Xp_real > 0 ? "L_sh" : "C_sh"
-      ));
+      if (B_norm.abs() < _kEps) {
+        steps.add(r'b_p\approx 0 \Rightarrow \text{shunt element not required.}');
+        Xp_real = 0.0;
+      } else {
+        Xp_real = -data.z0 / B_norm;
+        steps.add(r'b_p=\Im(y_{\mathrm{mid}}-y_{\mathrm{init}})=' + _latexNum(B_norm));
+        steps.add(r'X_p=-Z_0/b_p=' + _latexNum(Xp_real, digits: 4) + r'\,\Omega');
 
-      // 3. 串联元件计算 (zMid -> z2)
-      Complex zDiff = z2 - zMid;
+        smithPaths.add(SmithPath(
+          startGamma: zToGamma(z1),
+          endGamma: zToGamma(zMid),
+          type: PathType.shunt,
+          label: Xp_real > 0 ? "L_sh" : "C_sh",
+        ));
+      }
+
+      // ================= Step 9 =================
+      steps.add(r'\textbf{Step 9. Series element (}z_{\mathrm{mid}}\rightarrow z_{\mathrm{tar}}\text{):}');
+      final Complex zDiff = z2 - zMid;
       Xs_norm = zDiff.imaginary;
       Xs_real = Xs_norm * data.z0;
 
-      steps.add(r'\textbf{Step 4. Calculate Series Element:}');
-      steps.add(r'\text{The series reactance to move from } z_{mid} \text{ to } z_{tar} \text{ is:}');
-      steps.add(r'j x_s = z_{tar} - z_{mid} = (' + outputNum(z2, precision: 2) + r') - (' + outputNum(zMid, precision: 2) + r')');
-      steps.add(r'x_s = ' + outputNum(Xs_norm, precision: 3));
-      steps.add(r'X_{series} = x_s \times Z_0 = ' + outputNum(Xs_norm, precision: 3) + r' \times ' + outputNum(data.z0) + r' = ' + outputNum(Xs_real, precision: 2) + r'\;\Omega');
+      if (Xs_norm.abs() < _kEps) {
+        steps.add(r'x_s\approx 0 \Rightarrow \text{series element not required.}');
+      } else {
+        steps.add(r'x_s=\Im(z_{\mathrm{tar}}-z_{\mathrm{mid}})=' + _latexNum(Xs_norm));
+        steps.add(r'X_s=x_s Z_0=' + _latexNum(Xs_real, digits: 4) + r'\,\Omega');
 
-      smithPaths.add(SmithPath(
-          startGamma: zToGamma(zMid), endGamma: zToGamma(z2),
-          type: PathType.series, label: Xs_real > 0 ? "L_ser" : "C_ser"
-      ));
+        smithPaths.add(SmithPath(
+          startGamma: zToGamma(zMid),
+          endGamma: zToGamma(z2),
+          type: PathType.series,
+          label: Xs_real > 0 ? "L_ser" : "C_ser",
+        ));
+      }
+
+      // ================= Step 11 (Smith summary) =================
+      steps.add(r'\textbf{Step 11. Smith-chart actions (summary):}');
+      steps.add(r'\text{(1) Shunt: move on constant }g\text{ circle in }y\text{-chart.}');
+      steps.add(r'\text{(2) Series: move on constant }r\text{ circle in }z\text{-chart.}');
     }
 
-    // ================= 元件值转换步骤 =================
-    steps.add(r'\textbf{Step 5. Convert to Component Values:}');
+    // ================= Step 10 =================
+    steps.add(r'\textbf{Step 10. Convert reactance to L/C values:}');
     _calculateComponentValuesDetailed(steps, Xs_real, Xp_real, data.frequency, componentValues);
+
+    // ================= Step 12 (verification) =================
+    steps.add(r'\textbf{Step 12. Verification:}');
+    Complex Zout;
+
+    if (topology == LTopologyType.seriesFirst) {
+      // Series then shunt
+      final Complex ZmidAbs = Zinit + Complex(0, Xs_real);
+      if (Xp_real.abs() < _kEps) {
+        Zout = ZmidAbs;
+      } else {
+        final Complex YmidAbs = Complex(1, 0) / ZmidAbs;
+        final double B = -1.0 / Xp_real; // since Xp = -1/B
+        final Complex YoutAbs = YmidAbs + Complex(0, B);
+        Zout = Complex(1, 0) / YoutAbs;
+      }
+    } else {
+      // Shunt then series
+      Complex ZmidAbs;
+      if (Xp_real.abs() < _kEps) {
+        ZmidAbs = Zinit;
+      } else {
+        final Complex YinitAbs = Complex(1, 0) / Zinit;
+        final double B = -1.0 / Xp_real;
+        final Complex YmidAbs = YinitAbs + Complex(0, B);
+        ZmidAbs = Complex(1, 0) / YmidAbs;
+      }
+      Zout = ZmidAbs + Complex(0, Xs_real);
+    }
+
+    final double err = (Zout - Ztar).abs();
+    steps.add(r'Z_{\mathrm{out}}=' + _latexComplex(Zout, digits: 4) + r'\,\Omega');
+    steps.add(r'|Z_{\mathrm{out}}-Z_{\mathrm{tar}}|=' + _latexNum(err, digits: 3) + r'\,\Omega');
 
     return LMatchSolution(
       title: "Temp Title",
@@ -334,59 +474,61 @@ class MatchingCalculator {
     );
   }
 
-  // 简单猜测滤波类型
   static String _guessFilterType(Map<String, double> values) {
-    bool hasLSer = values.keys.any((k) => k.contains("Series Inductance"));
-    bool hasCSer = values.keys.any((k) => k.contains("Series Capacitance"));
-    bool hasLShunt = values.keys.any((k) => k.contains("Shunt Inductance"));
-    bool hasCShunt = values.keys.any((k) => k.contains("Shunt Capacitance"));
+    bool hasSeriesL = values.containsKey("Series Inductance (H)");
+    bool hasSeriesC = values.containsKey("Series Capacitance (F)");
+    bool hasShuntL = values.containsKey("Shunt Inductance (H)");
+    bool hasShuntC = values.containsKey("Shunt Capacitance (F)");
 
-    if (hasLSer && hasCShunt) return "Low Pass (L-C)";
-    if (hasCSer && hasLShunt) return "High Pass (C-L)";
-    if (hasLSer && hasLShunt) return "L-L (DC Block)";
-    if (hasCSer && hasCShunt) return "C-C (AC Block)";
-    return "Complex Match";
+    if ((hasSeriesL || hasSeriesC) && (hasShuntL || hasShuntC)) {
+      if (hasSeriesL && hasShuntC) return "Low-pass";
+      if (hasSeriesC && hasShuntL) return "High-pass";
+      if (hasSeriesL && hasShuntL) return "Band-stop";
+      if (hasSeriesC && hasShuntC) return "Band-pass";
+    }
+    return "Unknown";
   }
 
-  // 辅助：计算元件 L/C 值并生成详细步骤
-  static void _calculateComponentValuesDetailed(List<String> steps, double Xs, double Xp, double f, Map<String, double> values) {
-    double omega = 2 * pi * f;
+  static void _calculateComponentValuesDetailed(
+      List<String> steps, double Xs, double Xp, double f, Map<String, double> values) {
+    final double omega = 2 * pi * f;
+    steps.add(r'\omega=2\pi f=' + _latexNum(omega, digits: 3) + r'\,\mathrm{rad/s}');
 
-    // Series Element
-    if (Xs > 1e-9) {
-      double L = Xs / omega;
+    // ----- Series element -----
+    if (Xs.abs() < 1e-9) {
+      steps.add(r'\text{Series: } X_s\approx 0 \Rightarrow \text{not required.}');
+    } else if (Xs > 0) {
+      final double L = Xs / omega;
       values["Series Inductance (H)"] = L;
-      steps.add(r'\text{Series Element is inductive } (X_s > 0):');
-      steps.add(r'L_{series} = \frac{X_s}{2\pi f} = \frac{' + outputNum(Xs, precision: 2) + r'}{2\pi \times ' + outputNum(f) + r'} = ' + toLatexScientific(L, digits: 3) + r'\;\mathrm{H}');
-    } else if (Xs < -1e-9) {
-      double C = -1 / (omega * Xs);
+      steps.add(r'\text{Series (inductor): } L_s=X_s/\omega=' + toLatexScientific(L, digits: 3) + r'\,\mathrm{H}');
+    } else {
+      final double C = -1.0 / (omega * Xs);
       values["Series Capacitance (F)"] = C;
-      steps.add(r'\text{Series Element is capacitive } (X_s < 0):');
-      steps.add(r'C_{series} = \frac{-1}{2\pi f X_s} = \frac{-1}{2\pi \times ' + outputNum(f) + r' \times (' + outputNum(Xs, precision: 2) + r')} = ' + toLatexScientific(C, digits: 3) + r'\;\mathrm{F}');
+      steps.add(r'\text{Series (capacitor): } C_s=-1/(\omega X_s)=' + toLatexScientific(C, digits: 3) + r'\,\mathrm{F}');
     }
 
-    // Shunt Element
-    if (Xp > 1e-9) {
-      double L = Xp / omega;
+    // ----- Shunt element -----
+    if (Xp.abs() < 1e-9) {
+      steps.add(r'\text{Shunt: } X_p\approx 0 \Rightarrow \text{not required.}');
+    } else if (Xp > 0) {
+      final double L = Xp / omega;
       values["Shunt Inductance (H)"] = L;
-      steps.add(r'\text{Shunt Element is inductive } (X_p > 0):');
-      steps.add(r'L_{shunt} = \frac{X_p}{2\pi f} = \frac{' + outputNum(Xp, precision: 2) + r'}{2\pi \times ' + outputNum(f) + r'} = ' + toLatexScientific(L, digits: 3) + r'\;\mathrm{H}');
-    } else if (Xp < -1e-9) {
-      double C = -1 / (omega * Xp);
+      steps.add(r'\text{Shunt (inductor): } L_p=X_p/\omega=' + toLatexScientific(L, digits: 3) + r'\,\mathrm{H}');
+    } else {
+      final double C = -1.0 / (omega * Xp);
       values["Shunt Capacitance (F)"] = C;
-      steps.add(r'\text{Shunt Element is capacitive } (X_p < 0):');
-      steps.add(r'C_{shunt} = \frac{-1}{2\pi f X_p} = \frac{-1}{2\pi \times ' + outputNum(f) + r' \times (' + outputNum(Xp, precision: 2) + r')} = ' + toLatexScientific(C, digits: 3) + r'\;\mathrm{F}');
+      steps.add(r'\text{Shunt (capacitor): } C_p=-1/(\omega X_p)=' + toLatexScientific(C, digits: 3) + r'\,\mathrm{F}');
     }
   }
 
   static Complex zToGamma(Complex z) {
     if (z.real.isInfinite) return Complex(1, 0);
-    if (z.abs() > 1e9) return Complex(1,0);
+    if (z.abs() > 1e9) return Complex(1, 0);
     return (z - Complex(1, 0)) / (z + Complex(1, 0));
   }
 
   static Complex gammaToZ(Complex gamma, double z0) {
-    if ((Complex(1,0)-gamma).abs() < 1e-9) return Complex(1e9, 0);
+    if ((Complex(1, 0) - gamma).abs() < 1e-9) return Complex(1e9, 0);
     return (Complex(1, 0) + gamma) / (Complex(1, 0) - gamma) * Complex(z0, 0);
   }
 }
