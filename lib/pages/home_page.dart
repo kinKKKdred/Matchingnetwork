@@ -139,13 +139,6 @@ class _HomePageState extends State<HomePage> {
         zInitial: Complex(10, 0),
         zTarget: Complex(10, 0),
       ),
-      _TestExample(
-        name: 'Example 6: (50+50j) → (30−10j) Ω',
-        frequencyText: '2.45e9',
-        z0Text: '50',
-        zInitial: Complex(50, 50),
-        zTarget: Complex(30, -10),
-      ),
     ];
   }
 
