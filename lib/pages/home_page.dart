@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:complex/complex.dart';
 import '../models/impedance_data.dart';
+import '../models/stub_mode.dart';
+import '../models/stub_spacing.dart';
 import '../utils/complex_utils.dart';
 import '../pages/result_page.dart';
 import 'dart:math';
@@ -48,6 +50,12 @@ class _HomePageState extends State<HomePage> {
   bool _isSyncing = false;
   //匹配方式选择
   MatchMethod _currentMethod = MatchMethod.lMatching;
+
+  // Stub implementation mode (used only when _currentMethod == MatchMethod.singleStub)
+  StubMode _stubMode = StubMode.single;
+
+  // Double-stub spacing (used only when _stubMode == StubMode.double)
+  StubSpacing _doubleStubSpacing = StubSpacing.lambdaOver8;
 
   @override
   void initState() {
@@ -377,7 +385,14 @@ class _HomePageState extends State<HomePage> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => ResultPage(data: impedanceData, matchType: matchType),
+            builder: (context) => ResultPage(
+              data: impedanceData,
+              matchType: matchType,
+              stubMode: (_currentMethod == MatchMethod.singleStub) ? _stubMode : StubMode.single,
+              stubSpacing: (_currentMethod == MatchMethod.singleStub && _stubMode == StubMode.double)
+                  ? _doubleStubSpacing
+                  : null,
+            ),
           ),
         );
       } catch (e) { //如果用户输入有问题，提示输入出现错误
@@ -408,6 +423,10 @@ class _HomePageState extends State<HomePage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _buildMethodSelector(),
+              if (_currentMethod == MatchMethod.singleStub) ...[
+                SizedBox(height: 12),
+                _buildStubModeSelector(),
+              ],
               SizedBox(height: 20),
               _buildExampleRunner(),
               SizedBox(height: 20),
@@ -473,6 +492,84 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildStubModeSelector() {
+    return Card(
+      elevation: 1.5,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Stub Implementation',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 10,
+              children: [
+                ChoiceChip(
+                  label: const Text('Single'),
+                  selected: _stubMode == StubMode.single,
+                  onSelected: (_) => setState(() => _stubMode = StubMode.single),
+                ),
+                ChoiceChip(
+                  label: const Text('Balanced (2 stubs)'),
+                  selected: _stubMode == StubMode.balanced,
+                  onSelected: (_) => setState(() => _stubMode = StubMode.balanced),
+                ),
+                ChoiceChip(
+                  label: const Text('Double (2 stubs + spacing)'),
+                  selected: _stubMode == StubMode.double,
+                  onSelected: (_) => setState(() => _stubMode = StubMode.double),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _stubMode == StubMode.single
+                  ? 'One shunt stub is used.'
+                  : (_stubMode == StubMode.balanced
+                      ? 'Two identical shunt stubs in parallel (balanced implementation).'
+                      : 'Two shunt stubs separated by a fixed spacing s (double-stub).'),
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+
+            if (_stubMode == StubMode.double) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Double-Stub Spacing (s)',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey[700]),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 10,
+                children: [
+                  ChoiceChip(
+                    label: const Text('λ/8'),
+                    selected: _doubleStubSpacing == StubSpacing.lambdaOver8,
+                    onSelected: (_) => setState(() => _doubleStubSpacing = StubSpacing.lambdaOver8),
+                  ),
+                  ChoiceChip(
+                    label: const Text('3λ/8'),
+                    selected: _doubleStubSpacing == StubSpacing.threeLambdaOver8,
+                    onSelected: (_) => setState(() => _doubleStubSpacing = StubSpacing.threeLambdaOver8),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Note: λ/4 is excluded because tan(βs) is undefined.',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 

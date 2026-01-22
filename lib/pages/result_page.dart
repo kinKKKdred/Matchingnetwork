@@ -3,14 +3,18 @@ import 'package:complex/complex.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 
 import '../models/impedance_data.dart';
+import '../models/stub_mode.dart';
+import '../models/stub_spacing.dart';
 import '../utils/complex_utils.dart';
 import '../utils/matching_calculator.dart';
 import '../utils/single_stub_matching.dart';
+import '../utils/stub_matching_calculator.dart';
 import '../utils/Pi_matching_network.dart'; // Ensure correct import
 import '../utils/T_matching_network.dart'; // Ensure correct import
 
 import '../widgets/l_match_topology.dart';
 import '../widgets/single_stub_topology.dart';
+import '../widgets/double_stub_topology.dart';
 import '../widgets/Pi_match_topology.dart';
 import '../widgets/T_match_topology.dart';
 import '../widgets/smithchart.dart';
@@ -19,8 +23,15 @@ import '../widgets/step_card_display.dart';
 class ResultPage extends StatefulWidget {
   final ImpedanceData data;
   final String matchType;
+  final StubMode stubMode;
+  final StubSpacing? stubSpacing;
 
-  ResultPage({required this.data, required this.matchType});
+  ResultPage({
+    required this.data,
+    required this.matchType,
+    this.stubMode = StubMode.single,
+    this.stubSpacing,
+  });
 
   @override
   _ResultPageState createState() => _ResultPageState();
@@ -313,7 +324,11 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
 
     // ==================== Single Stub ====================
     else if (widget.matchType == 'single-stub') {
-      final result = SingleStubMatchingCalculator.calculateStubMatch(widget.data);
+      final result = StubMatchingCalculator.calculateStubMatch(
+        widget.data,
+        mode: widget.stubMode,
+        spacing: widget.stubSpacing ?? StubSpacing.lambdaOver8,
+      );
 
       if (result.solutions.isEmpty) {
         return Scaffold(
@@ -326,6 +341,10 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
               children: [
                 _buildInputSummaryCard(widget.data),
                 const SizedBox(height: 16),
+                if (result.commonSteps.isNotEmpty) ...[
+                  StepCardDisplay(steps: result.commonSteps),
+                  const SizedBox(height: 12),
+                ],
                 const Text('No solution found.', textAlign: TextAlign.center),
               ],
             ),
@@ -337,7 +356,11 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
         length: result.solutions.length,
         child: Scaffold(
           appBar: AppBar(
-            title: Text('Single Stub Result'),
+            title: Text(
+              widget.stubMode == StubMode.balanced
+                  ? 'Balanced Stub Result'
+                  : (widget.stubMode == StubMode.double ? 'Double Stub Result' : 'Single Stub Result'),
+            ),
             centerTitle: true,
             bottom: TabBar(
               labelColor: Colors.blue[800],
@@ -541,8 +564,10 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
             children: [
               Icon(Icons.electrical_services, color: Colors.blue[800]),
               SizedBox(width: 8),
-              Text(tlOnly ? solution.title : '${solution.title}: ${solution.stubType} Stub',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blue[900])),
+              Text(
+                solution.title,
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blue[900]),
+              ),
             ],
           ),
           Divider(),
@@ -567,24 +592,65 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
           Text("Circuit Topology:", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           SizedBox(height: 8),
           Center(
-            child: SingleStubTopology(
-              mainLineLengthLambda: solution.dLengthLambda,
-              stubLengthLambda: solution.stubLengthLambda,
-              isShortStub: solution.stubType == 'Short',
-              mode: mode,
-              zTarget: data.zTarget,
-              zInitial: data.zInitial,
-              gammaTarget: data.gammaTarget,
-              gammaInitial: data.gammaInitial,
-              width: 340,
-              height: 200,
-            ),
+            child: tlOnly
+                ? SingleStubTopology(
+                    mainLineLengthLambda: solution.dLengthLambda,
+                    stubLengthLambda: 0,
+                    isShortStub: true,
+                    mode: mode,
+                    stubMode: StubMode.single,
+                    zTarget: data.zTarget,
+                    zInitial: data.zInitial,
+                    gammaTarget: data.gammaTarget,
+                    gammaInitial: data.gammaInitial,
+                    width: 340,
+                    height: 200,
+                  )
+                : (widget.stubMode == StubMode.double && solution.stub2LengthLambda != null)
+                    ? DoubleStubTopology(
+                        mainLineLengthLambda: solution.dLengthLambda,
+                        spacingLengthLambda: solution.spacingLengthLambda ?? 0.0,
+                        stub1LengthLambda: solution.stubLengthLambda,
+                        stub2LengthLambda: solution.stub2LengthLambda ?? 0.0,
+                        isShortStub: solution.stubType == 'Short',
+                        zTarget: data.zTarget,
+                        zInitial: data.zInitial,
+                        gammaTarget: data.gammaTarget,
+                        gammaInitial: data.gammaInitial,
+                        width: 340,
+                        height: 200,
+                      )
+                    : SingleStubTopology(
+                        mainLineLengthLambda: solution.dLengthLambda,
+                        stubLengthLambda: solution.stubLengthLambda,
+                        isShortStub: solution.stubType == 'Short',
+                        mode: mode,
+                        stubMode: widget.stubMode,
+                        zTarget: data.zTarget,
+                        zInitial: data.zInitial,
+                        gammaTarget: data.gammaTarget,
+                        gammaInitial: data.gammaInitial,
+                        width: 340,
+                        height: 200,
+                      ),
           ),
           Divider(),
 
           Text("Physical Dimensions:", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           latexDimensionEntry("d", solution.dLengthMm),
-          if (!tlOnly) latexDimensionEntry("l", solution.stubLengthMm),
+          if (!tlOnly) ...[
+            if (widget.stubMode == StubMode.double) ...[
+              if (solution.spacingLengthMm != null)
+                latexDimensionEntry("s", solution.spacingLengthMm!),
+              latexDimensionEntry(r'l_1', solution.stubLengthMm),
+              if (solution.stub2LengthMm != null)
+                latexDimensionEntry(r'l_2', solution.stub2LengthMm!),
+            ] else
+              latexDimensionEntry(
+                widget.stubMode == StubMode.balanced ? r'l_{\mathrm{each}}' : 'l',
+                solution.stubLengthMm,
+              ),
+          ],
 
           Divider(),
           SizedBox(height: 12),

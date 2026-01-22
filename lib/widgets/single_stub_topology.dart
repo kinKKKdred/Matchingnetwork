@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:complex/complex.dart';
+import '../models/stub_mode.dart';
 import '../utils/complex_utils.dart';
 
 class SingleStubTopology extends StatelessWidget {
@@ -7,6 +8,7 @@ class SingleStubTopology extends StatelessWidget {
   final double stubLengthLambda;
   final bool isShortStub;
   final String mode;
+  final StubMode stubMode;
   final Complex? zInitial;
   final Complex? zTarget;
   final Complex? gammaInitial;
@@ -21,6 +23,7 @@ class SingleStubTopology extends StatelessWidget {
     required this.stubLengthLambda,
     this.isShortStub = true,
     required this.mode,
+    this.stubMode = StubMode.single,
     this.zInitial,
     this.zTarget,
     this.gammaInitial,
@@ -33,6 +36,7 @@ class SingleStubTopology extends StatelessWidget {
   Widget build(BuildContext context) {
     // 当 stubLengthLambda 为 0（或极小）时，表示“无支节/仅传输线”情形
     final bool showStub = stubLengthLambda.abs() > 1e-6;
+    final bool isBalanced = (stubMode == StubMode.balanced);
 
     // 准备显示的文本，保持简洁，因为上面已经有图例了
     String zinitStr = zInitial != null
@@ -58,6 +62,7 @@ class SingleStubTopology extends StatelessWidget {
             painter: SingleStubCircuitPainter(
               isShort: isShortStub,
               showStub: showStub,
+              stubMode: stubMode,
             ),
           ),
         ),
@@ -78,7 +83,10 @@ class SingleStubTopology extends StatelessWidget {
               const SizedBox(height: 6),
               _buildLegendRow("Elec. Lengths:", [
                 "d = ${mainLineLengthLambda.toStringAsFixed(4)}λ",
-                if (showStub) "l = ${stubLengthLambda.toStringAsFixed(4)}λ",
+                if (showStub)
+                  isBalanced
+                      ? "l(each) = ${stubLengthLambda.toStringAsFixed(4)}λ  (×2)"
+                      : "l = ${stubLengthLambda.toStringAsFixed(4)}λ",
               ]),
             ],
           ),
@@ -122,10 +130,12 @@ class SingleStubTopology extends StatelessWidget {
 class SingleStubCircuitPainter extends CustomPainter {
   final bool isShort;
   final bool showStub;
+  final StubMode stubMode;
 
   SingleStubCircuitPainter({
     required this.isShort,
     this.showStub = true,
+    this.stubMode = StubMode.single,
   });
 
   @override
@@ -154,20 +164,52 @@ class SingleStubCircuitPainter extends CustomPainter {
 
     // 2. 画 Stub（仅 showStub 时绘制）
     if (showStub) {
-      canvas.drawLine(Offset(stubX, yMain), Offset(stubX, stubEndY), paint);
+      final bool isBalanced = (stubMode == StubMode.balanced);
 
-      // 连接点
-      canvas.drawCircle(Offset(stubX, yMain), 3.0, fillPaint);
+      if (!isBalanced) {
+        // Single stub
+        canvas.drawLine(Offset(stubX, yMain), Offset(stubX, stubEndY), paint);
+        canvas.drawCircle(Offset(stubX, yMain), 3.0, fillPaint);
 
-      // 3. 画 Stub 终端
-      if (isShort) {
-        _drawGround(canvas, paint, Offset(stubX, stubEndY));
+        if (isShort) {
+          _drawGround(canvas, paint, Offset(stubX, stubEndY));
+        } else {
+          final Paint whiteFill = Paint()
+            ..color = Colors.white
+            ..style = PaintingStyle.fill;
+          canvas.drawCircle(Offset(stubX, stubEndY), 4.0, fillPaint);
+          canvas.drawCircle(Offset(stubX, stubEndY), 2.5, whiteFill);
+        }
       } else {
-        Paint whiteFill = Paint()
-          ..color = Colors.white
-          ..style = PaintingStyle.fill;
-        canvas.drawCircle(Offset(stubX, stubEndY), 4.0, fillPaint);
-        canvas.drawCircle(Offset(stubX, stubEndY), 2.5, whiteFill);
+        // Balanced stub: two identical shunt stubs (obvious visual split)
+        final double dx = 16;
+        final double stubX1 = stubX - dx;
+        final double stubX2 = stubX + dx;
+
+        // Two stubs
+        canvas.drawLine(Offset(stubX1, yMain), Offset(stubX1, stubEndY), paint);
+        canvas.drawLine(Offset(stubX2, yMain), Offset(stubX2, stubEndY), paint);
+
+        // Connection points
+        canvas.drawCircle(Offset(stubX1, yMain), 3.0, fillPaint);
+        canvas.drawCircle(Offset(stubX2, yMain), 3.0, fillPaint);
+
+        // Terminations
+        if (isShort) {
+          _drawGround(canvas, paint, Offset(stubX1, stubEndY));
+          _drawGround(canvas, paint, Offset(stubX2, stubEndY));
+        } else {
+          final Paint whiteFill = Paint()
+            ..color = Colors.white
+            ..style = PaintingStyle.fill;
+          canvas.drawCircle(Offset(stubX1, stubEndY), 4.0, fillPaint);
+          canvas.drawCircle(Offset(stubX1, stubEndY), 2.5, whiteFill);
+          canvas.drawCircle(Offset(stubX2, stubEndY), 4.0, fillPaint);
+          canvas.drawCircle(Offset(stubX2, stubEndY), 2.5, whiteFill);
+        }
+
+        // Small note to reinforce "two stubs"
+        _drawNote(canvas, Offset(stubX, yMain - 28), '×2 stubs');
       }
     }
 
@@ -182,10 +224,22 @@ class SingleStubCircuitPainter extends CustomPainter {
         canvas,
         Offset(stubX + 15, yMain),
         Offset(stubX + 15, stubEndY),
-        "l",
+        stubMode == StubMode.balanced ? "l (each)" : "l",
         isVertical: true,
       );
     }
+  }
+
+  void _drawNote(Canvas canvas, Offset p, String text) {
+    final TextPainter tp = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: const TextStyle(color: Colors.blueGrey, fontSize: 11, fontWeight: FontWeight.w600),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    tp.layout();
+    tp.paint(canvas, p - Offset(tp.width / 2, tp.height / 2));
   }
 
   void _drawGround(Canvas canvas, Paint paint, Offset p) {
@@ -258,5 +312,9 @@ class SingleStubCircuitPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant SingleStubCircuitPainter oldDelegate) {
+    return oldDelegate.isShort != isShort ||
+        oldDelegate.showStub != showStub ||
+        oldDelegate.stubMode != stubMode;
+  }
 }
