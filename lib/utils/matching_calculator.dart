@@ -119,6 +119,117 @@ class MatchingCalculator {
       );
       return MatchingResult(solutions: [matchedSolution], commonSteps: commonSteps);
     }
+    // ---------- Step 3B: Simplification check (single-element match) ----------
+        {
+      // 容差（经验值）：阻抗用 Ohm 级；导纳用归一化量级
+      final double magZ = max(zInitial.abs(), zTarget.abs());
+      final double tolOhm = max(0.1, 1e-3 * max(magZ, data.z0));
+      final double tolG = max(1e-3, 1e-3 * max(y1.real.abs(), y2.real.abs()));
+
+      final List<LMatchSolution> simpleSolutions = [];
+
+      // ===== Case A: Series-only (只需一个串联元件) =====
+      // 条件：Re(Zinit) ≈ Re(Ztar)  => 仅需补齐虚部差
+      if ((zInitial.real - zTarget.real).abs() <= tolOhm) {
+        final double Xs = zTarget.imaginary - zInitial.imaginary; // Ohms
+
+        final List<String> steps = [];
+        final Map<String, double> values = {};
+        final List<SmithPath> paths = [];
+
+        steps.add(r'\textbf{Simplified Match: Single Series Element}');
+        steps.add(r'\text{Condition: } \Re(Z_{\mathrm{init}})\approx \Re(Z_{\mathrm{tar}}).');
+        steps.add(r'X_s=\Im(Z_{\mathrm{tar}}-Z_{\mathrm{init}})=' + _latexNum(Xs, digits: 4) + r'\,\Omega');
+        steps.add(r'Z_{\mathrm{out}}=Z_{\mathrm{init}}+jX_s.');
+
+        // Smith path（series：沿等电阻圆）
+        paths.add(SmithPath(
+          startGamma: zToGamma(z1),
+          endGamma: zToGamma(z2),
+          type: PathType.series,
+          label: Xs > 0 ? "L_ser" : "C_ser",
+        ));
+
+        // 计算元件值（只会生成 Series L/C；Shunt 会显示 not required）
+        _calculateComponentValuesDetailed(steps, Xs, 0.0, data.frequency, values);
+
+        // Verification
+        steps.add(r'\textbf{Verification:}');
+        final Complex Zout = zInitial + Complex(0, Xs);
+        final double err = (Zout - zTarget).abs();
+        steps.add(r'Z_{\mathrm{out}}=' + _latexComplex(Zout, digits: 4) + r'\,\Omega');
+        steps.add(r'|Z_{\mathrm{out}}-Z_{\mathrm{tar}}|=' + _latexNum(err, digits: 3) + r'\,\Omega');
+
+        simpleSolutions.add(LMatchSolution(
+          title: "Simplified: Series-only",
+          topologyType: LTopologyType.seriesFirst,
+          values: values,
+          steps: steps,
+          paths: paths,
+          filterType: "Series-only",
+        ));
+      }
+
+      // ===== Case B: Shunt-only (只需一个并联元件) =====
+      // 条件：Re(Yinit) ≈ Re(Ytar), 其中 Y=1/z（归一化导纳）
+      if ((y1.real - y2.real).abs() <= tolG) {
+        final double bNorm = (y2 - y1).imaginary; // normalized susceptance difference
+        final List<String> steps = [];
+        final Map<String, double> values = {};
+        final List<SmithPath> paths = [];
+
+        steps.add(r'\textbf{Simplified Match: Single Shunt Element}');
+        steps.add(r'\text{Condition: } \Re(Y_{\mathrm{init}})\approx \Re(Y_{\mathrm{tar}}),\; Y=1/z.');
+        steps.add(r'b_p=\Im(Y_{\mathrm{tar}}-Y_{\mathrm{init}})=' + _latexNum(bNorm, digits: 4) + r'\ (\text{normalized}).');
+
+        double Xp = 0.0; // equivalent shunt reactance in ohms
+        if (bNorm.abs() > _kEps) {
+          Xp = -data.z0 / bNorm;
+          steps.add(r'X_p=-Z_0/b_p=' + _latexNum(Xp, digits: 4) + r'\,\Omega');
+        } else {
+          steps.add(r'b_p\approx 0 \Rightarrow \text{No shunt element required.}');
+        }
+
+        // Smith path（shunt：导纳域沿等电导圆）
+        paths.add(SmithPath(
+          startGamma: zToGamma(z1),
+          endGamma: zToGamma(z2),
+          type: PathType.shunt,
+          label: Xp > 0 ? "L_sh" : "C_sh",
+        ));
+
+        // 计算元件值（只会生成 Shunt L/C；Series 会显示 not required）
+        _calculateComponentValuesDetailed(steps, 0.0, Xp, data.frequency, values);
+
+        // Verification（用绝对导纳验证）
+        steps.add(r'\textbf{Verification:}');
+        final Complex YinitAbs = Complex(1, 0) / zInitial;
+        final double Babs = bNorm / data.z0; // Siemens
+        final Complex YoutAbs = YinitAbs + Complex(0, Babs);
+        final Complex Zout = Complex(1, 0) / YoutAbs;
+        final double err = (Zout - zTarget).abs();
+        steps.add(r'Z_{\mathrm{out}}=' + _latexComplex(Zout, digits: 4) + r'\,\Omega');
+        steps.add(r'|Z_{\mathrm{out}}-Z_{\mathrm{tar}}|=' + _latexNum(err, digits: 3) + r'\,\Omega');
+
+        simpleSolutions.add(LMatchSolution(
+          title: "Simplified: Shunt-only",
+          topologyType: LTopologyType.shuntFirst,
+          values: values,
+          steps: steps,
+          paths: paths,
+          filterType: "Shunt-only",
+        ));
+      }
+
+      // 若存在单元件解：直接返回（最简优先）
+      if (simpleSolutions.isNotEmpty) {
+        commonSteps.add(r'\textbf{Step 3. Simplification (minimum components):}');
+        commonSteps.add(r'\text{If a single lossless element can achieve } Z_{\mathrm{init}}\to Z_{\mathrm{tar}},\ \text{use it.}');
+        commonSteps.add(r'\text{Series-only: } \Re(Z_{\mathrm{init}})\approx \Re(Z_{\mathrm{tar}}).');
+        commonSteps.add(r'\text{Shunt-only: } \Re(1/Z_{\mathrm{init}})\approx \Re(1/Z_{\mathrm{tar}}).');
+        return MatchingResult(solutions: simpleSolutions, commonSteps: commonSteps);
+      }
+    }
 
     // ---------- Step 4: Feasibility guard (pure reactance -> resistive target) ----------
     const double epsilon = 1e-6;

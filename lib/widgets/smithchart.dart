@@ -213,21 +213,42 @@ class SmithChartPainter extends CustomPainter {
 
     _drawGrid(canvas, center, scale);
 
-    // 画 Initial/Target 的等电阻圆 + 等电抗线（高亮，虚线 + 颜色避冲突 + 数值标注）
-    _drawKeyPointImpedanceGuides(canvas, center, scale);
+    // 只画虚线引导（裁剪在圆内）
+    _drawKeyPointImpedanceGuides(
+      canvas,
+      center,
+      scale,
+      drawGuideLines: true,
+      drawLabels: false,
+    );
 
     _drawActiveCircles(canvas, center, scale);
     _drawTrajectories(canvas, center, scale);
 
     canvas.restore();
 
-    canvas.drawCircle(center, scale, Paint()..style = PaintingStyle.stroke..color = Colors.black);
+    canvas.drawCircle(
+      center,
+      scale,
+      Paint()..style = PaintingStyle.stroke..color = Colors.black,
+    );
 
     _drawAxisLabels(canvas, center, scale);
 
     // 绘制关键点 (包含无解时的起终点)
     _drawKeyPoints(canvas, center, scale);
+
+    // 只画文字标签（不裁剪，可超出外圆）
+    _drawKeyPointImpedanceGuides(
+      canvas,
+      center,
+      scale,
+      drawGuideLines: false,
+      drawLabels: true,
+    );
   }
+
+
 
   void _drawGrid(Canvas canvas, Offset center, double scale) {
     final Paint rPaint = Paint()..style = PaintingStyle.stroke..color = colorRes..strokeWidth = 1.0;
@@ -290,7 +311,13 @@ class SmithChartPainter extends CustomPainter {
   }
 
   // ---------- 关键点引导线（等r圆 + 等x线）+ 数值标注 ----------
-  void _drawKeyPointImpedanceGuides(Canvas canvas, Offset center, double scale) {
+  void _drawKeyPointImpedanceGuides(
+      Canvas canvas,
+      Offset center,
+      double scale, {
+        bool drawGuideLines = true,
+        bool drawLabels = true,
+      }) {
     final Complex? startGamma = _getStartGamma();
     final Complex? targetGamma = _getTargetGamma();
 
@@ -314,6 +341,8 @@ class SmithChartPainter extends CustomPainter {
         initialPaint,
         label: "Initial",
         labelColor: Colors.teal[900]!,
+        drawGuideLines: drawGuideLines,
+        drawLabels: drawLabels,
       );
     }
     if (targetGamma != null) {
@@ -325,6 +354,8 @@ class SmithChartPainter extends CustomPainter {
         targetPaint,
         label: "Target",
         labelColor: Colors.deepOrange[900]!,
+        drawGuideLines: drawGuideLines,
+        drawLabels: drawLabels,
       );
     }
   }
@@ -337,28 +368,34 @@ class SmithChartPainter extends CustomPainter {
       Paint paint, {
         required String label,
         required Color labelColor,
+        bool drawGuideLines = true,
+        bool drawLabels = true,
       }) {
     // Γ -> 归一化阻抗 z = r + jx（Smith 网格默认就是归一化）
     final Complex z = _gammaToZ_Normalized(gamma);
     final double r = z.real;
     final double x = z.imaginary;
 
-    // 1) 等电阻圆（constant r circle）：圆心 (r/(1+r),0)，半径 1/(1+r)
-    if (r > -0.999) {
-      final double cx = r / (1 + r);
-      final double cr = 1 / (1 + r);
-      final Offset cc = _gammaToOffset(Complex(cx, 0), center, scale);
-      _drawDashedCircle(canvas, cc, cr * scale, paint);
+    if (drawGuideLines) {
+      // 1) 等电阻圆（constant r circle）：圆心 (r/(1+r),0)，半径 1/(1+r)
+      if (r > -0.999) {
+        final double cx = r / (1 + r);
+        final double cr = 1 / (1 + r);
+        final Offset cc = _gammaToOffset(Complex(cx, 0), center, scale);
+        _drawDashedCircle(canvas, cc, cr * scale, paint);
+      }
+
+      // 2) 等电抗线（constant x arc）：圆心 (1, 1/x)，半径 1/|x|
+      if (x.abs() > 1e-3) {
+        final double u = 1.0;
+        final double v = 1 / x;             // 带符号
+        final double radius = 1 / x.abs();  // 半径为正
+        final Offset cc = _gammaToOffset(Complex(u, v), center, scale);
+        _drawDashedCircle(canvas, cc, radius * scale, paint);
+      }
     }
 
-    // 2) 等电抗线（constant x arc）：圆心 (1, 1/x)，半径 1/|x|
-    if (x.abs() > 1e-3) {
-      final double u = 1.0;
-      final double v = 1 / x;             // 带符号
-      final double radius = 1 / x.abs();  // 半径为正
-      final Offset cc = _gammaToOffset(Complex(u, v), center, scale);
-      _drawDashedCircle(canvas, cc, radius * scale, paint);
-    }
+    if (!drawLabels) return;
 
     // 3) 数值标注：在点旁标 r/x（归一化值，与网格一致）
     final Offset p = _gammaToOffset(gamma, center, scale);
@@ -387,6 +424,7 @@ class SmithChartPainter extends CustomPainter {
       ),
     );
   }
+
 
   void _drawAdmittanceGrid(Canvas canvas, Offset center, double scale) {
     // 说明：

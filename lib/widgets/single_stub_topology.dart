@@ -31,6 +31,9 @@ class SingleStubTopology extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 当 stubLengthLambda 为 0（或极小）时，表示“无支节/仅传输线”情形
+    final bool showStub = stubLengthLambda.abs() > 1e-6;
+
     // 准备显示的文本，保持简洁，因为上面已经有图例了
     String zinitStr = zInitial != null
         ? "Z_init = ${outputNum(zInitial!)}Ω"
@@ -49,11 +52,12 @@ class SingleStubTopology extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white,
             border: Border.all(color: Colors.grey.shade300),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
           ),
           child: CustomPaint(
             painter: SingleStubCircuitPainter(
               isShort: isShortStub,
+              showStub: showStub,
             ),
           ),
         ),
@@ -61,20 +65,20 @@ class SingleStubTopology extends StatelessWidget {
         // 2. 参数信息区域
         Container(
           width: width,
-          padding: EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
           decoration: BoxDecoration(
             color: Colors.grey.shade100,
             border: Border.all(color: Colors.grey.shade300),
-            borderRadius: BorderRadius.vertical(bottom: Radius.circular(8)),
+            borderRadius: const BorderRadius.vertical(bottom: Radius.circular(8)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildLegendRow("Ports:", [zinitStr, zTarStr]),
-              SizedBox(height: 6),
+              const SizedBox(height: 6),
               _buildLegendRow("Elec. Lengths:", [
                 "d = ${mainLineLengthLambda.toStringAsFixed(4)}λ",
-                "l = ${stubLengthLambda.toStringAsFixed(4)}λ",
+                if (showStub) "l = ${stubLengthLambda.toStringAsFixed(4)}λ",
               ]),
             ],
           ),
@@ -87,13 +91,27 @@ class SingleStubTopology extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blueGrey[800])),
-        SizedBox(width: 8),
+        Text(
+          title,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+            color: Colors.blueGrey[800],
+          ),
+        ),
+        const SizedBox(width: 8),
         Expanded(
           child: Wrap(
             spacing: 12,
             runSpacing: 4,
-            children: items.map((item) => Text(item, style: TextStyle(fontSize: 12, fontFamily: 'RobotoMono'))).toList(),
+            children: items
+                .map(
+                  (item) => Text(
+                item,
+                style: const TextStyle(fontSize: 12, fontFamily: 'RobotoMono'),
+              ),
+            )
+                .toList(),
           ),
         ),
       ],
@@ -103,8 +121,12 @@ class SingleStubTopology extends StatelessWidget {
 
 class SingleStubCircuitPainter extends CustomPainter {
   final bool isShort;
+  final bool showStub;
 
-  SingleStubCircuitPainter({required this.isShort});
+  SingleStubCircuitPainter({
+    required this.isShort,
+    this.showStub = true,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -122,35 +144,48 @@ class SingleStubCircuitPainter extends CustomPainter {
     double startX = 60;
     double endX = size.width - 60;
     double yMain = size.height * 0.40;
-    double stubX = endX - 70;
-    // 【修复1】修正变量名
+
+    // 有 stub：stub 从主线上某点引出；无 stub：stubX 就是 endX（d 标注覆盖整段主线）
+    double stubX = showStub ? (endX - 70) : endX;
     double stubEndY = size.height * 0.80;
 
     // 1. 画主传输线
     canvas.drawLine(Offset(startX, yMain), Offset(endX, yMain), paint);
 
-    // 2. 画 Stub
-    canvas.drawLine(Offset(stubX, yMain), Offset(stubX, stubEndY), paint);
+    // 2. 画 Stub（仅 showStub 时绘制）
+    if (showStub) {
+      canvas.drawLine(Offset(stubX, yMain), Offset(stubX, stubEndY), paint);
 
-    // 连接点
-    canvas.drawCircle(Offset(stubX, yMain), 3.0, fillPaint);
+      // 连接点
+      canvas.drawCircle(Offset(stubX, yMain), 3.0, fillPaint);
 
-    // 3. 画 Stub 终端
-    if (isShort) {
-      _drawGround(canvas, paint, Offset(stubX, stubEndY));
-    } else {
-      Paint whiteFill = Paint()..color = Colors.white..style = PaintingStyle.fill;
-      canvas.drawCircle(Offset(stubX, stubEndY), 4.0, fillPaint);
-      canvas.drawCircle(Offset(stubX, stubEndY), 2.5, whiteFill);
+      // 3. 画 Stub 终端
+      if (isShort) {
+        _drawGround(canvas, paint, Offset(stubX, stubEndY));
+      } else {
+        Paint whiteFill = Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.fill;
+        canvas.drawCircle(Offset(stubX, stubEndY), 4.0, fillPaint);
+        canvas.drawCircle(Offset(stubX, stubEndY), 2.5, whiteFill);
+      }
     }
 
-    // 4. 【修复2】画端口标签（模仿 L-Match 风格）
+    // 4. 画端口标签（模仿 L-Match 风格）
     _drawPortLabel(canvas, Offset(startX, yMain), "Z_init", isLeft: true);
     _drawPortLabel(canvas, Offset(endX, yMain), "Z_tar", isLeft: false);
 
-    // 5. 画尺寸标注
+    // 5. 画尺寸标注：无 stub 时只标 d
     _drawDimensionLine(canvas, Offset(startX, yMain + 20), Offset(stubX, yMain + 20), "d");
-    _drawDimensionLine(canvas, Offset(stubX + 15, yMain), Offset(stubX + 15, stubEndY), "l", isVertical: true);
+    if (showStub) {
+      _drawDimensionLine(
+        canvas,
+        Offset(stubX + 15, yMain),
+        Offset(stubX + 15, stubEndY),
+        "l",
+        isVertical: true,
+      );
+    }
   }
 
   void _drawGround(Canvas canvas, Paint paint, Offset p) {
@@ -162,17 +197,16 @@ class SingleStubCircuitPainter extends CustomPainter {
   // 修改后的端口绘制函数，与 L-Match 风格一致
   void _drawPortLabel(Canvas canvas, Offset p, String text, {required bool isLeft}) {
     // 画黑点
-    canvas.drawCircle(p, 3.5, Paint()..style=PaintingStyle.fill);
-
-    // 画文字 "← Z_init"
-    String label = "← $text";
-    if (!isLeft) label = "$text →"; // 右边可能箭头向右比较好看，或者统一向左
+    canvas.drawCircle(p, 3.5, Paint()..style = PaintingStyle.fill);
 
     // 统一用 "← Z_xxx" 放在点上方
-    label = "← $text";
+    String label = "← $text";
 
     TextPainter tp = TextPainter(
-      text: TextSpan(text: label, style: TextStyle(color: Colors.black, fontSize: 14, fontWeight: FontWeight.bold)),
+      text: TextSpan(
+        text: label,
+        style: const TextStyle(color: Colors.black, fontSize: 14, fontWeight: FontWeight.bold),
+      ),
       textDirection: TextDirection.ltr,
     );
     tp.layout();
@@ -181,17 +215,24 @@ class SingleStubCircuitPainter extends CustomPainter {
   }
 
   void _drawDimensionLine(Canvas canvas, Offset p1, Offset p2, String label, {bool isVertical = false}) {
-    Paint dimPaint = Paint()..color = Colors.blueGrey..strokeWidth = 1.0;
+    Paint dimPaint = Paint()
+      ..color = Colors.blueGrey
+      ..strokeWidth = 1.0;
+
     canvas.drawLine(p1, p2, dimPaint);
 
     _drawArrow(canvas, p1, p2, dimPaint.color);
     _drawArrow(canvas, p2, p1, dimPaint.color);
 
     TextPainter tp = TextPainter(
-      text: TextSpan(text: label, style: TextStyle(color: Colors.blueGrey, fontSize: 12, fontStyle: FontStyle.italic)),
+      text: TextSpan(
+        text: label,
+        style: const TextStyle(color: Colors.blueGrey, fontSize: 12, fontStyle: FontStyle.italic),
+      ),
       textDirection: TextDirection.ltr,
     );
     tp.layout();
+
     Offset center = Offset((p1.dx + p2.dx) / 2, (p1.dy + p2.dy) / 2);
     if (isVertical) {
       tp.paint(canvas, center + Offset(5, -tp.height / 2));

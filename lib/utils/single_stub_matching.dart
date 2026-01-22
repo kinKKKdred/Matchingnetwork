@@ -7,7 +7,7 @@ import '../utils/complex_utils.dart';
 
 class StubSolution {
   final String title;
-  final String stubType; // "Short" or "Open"
+  final String stubType; // "Short" or "Open" or "None"
   final double dLengthMm;
   final double dLengthLambda;
   final double stubLengthMm;
@@ -38,7 +38,6 @@ class StubMatchingResult {
 }
 
 class SingleStubMatchingCalculator {
-
   static StubMatchingResult calculateStubMatch(ImpedanceData data) {
     List<String> commonSteps = [];
     List<StubSolution> solutions = [];
@@ -66,11 +65,74 @@ class SingleStubMatchingCalculator {
       StubSolution matchedSolution = StubSolution(
         title: "Direct Connection",
         stubType: "None",
-        dLengthMm: 0, dLengthLambda: 0, stubLengthMm: 0, stubLengthLambda: 0,
+        dLengthMm: 0,
+        dLengthLambda: 0,
+        stubLengthMm: 0,
+        stubLengthLambda: 0,
         steps: infoSteps,
         paths: [],
       );
       return StubMatchingResult(solutions: [matchedSolution], commonSteps: commonSteps);
+    }
+
+    // ================= [NEW 1.5] 共轭特例：仅用传输线完成变换 =================
+    // 条件：Z_target ≈ conjugate(Z_initial)  => 仅需沿 VSWR 圆旋转 Γ（不需要 stub）
+        {
+      final double magZ = max(zS.abs(), zL.abs());
+      final double tol = max(0.2, 1e-3 * max(z0, magZ)); // Ohm 级容差：兼顾数值误差/输入误差
+      final bool isConjugate =
+          (zS.real - zL.real).abs() <= tol && (zS.imaginary + zL.imaginary).abs() <= tol;
+
+      if (isConjugate) {
+        final Complex gammaInit = zToGamma(zS, z0);
+        final Complex gammaTar = zToGamma(zL, z0);
+
+        final double angInit = atan2(gammaInit.imaginary, gammaInit.real);
+        final double angTar = atan2(gammaTar.imaginary, gammaTar.real);
+
+        // 需要满足：Γ(l) = Γ(0) e^{-j2βl} = Γ_target
+        // => -2βl = θ_tar - θ_init + 2kπ
+        // => l/λ = (θ_init - θ_tar + 2kπ) / (4π)
+        double deltaAng = angInit - angTar;
+        while (deltaAng < 0) deltaAng += 2 * pi;
+        while (deltaAng >= 2 * pi) deltaAng -= 2 * pi;
+
+        final double dLambda = deltaAng / (4 * pi); // 0 ~ 0.5
+        final double dMm = dLambda * lambdaMm;
+
+        final List<String> infoSteps = [];
+        infoSteps.add(r'\textbf{Special Case: Conjugate Pair Detected}');
+        infoSteps.add(r'Z_{tar} \approx Z_{init}^{*} \Rightarrow |\Gamma_{init}| = |\Gamma_{tar}|');
+        infoSteps.add(r'\text{Therefore, only a lossless transmission line is needed (no stub).}');
+        infoSteps.add(r'\Gamma(l)=\Gamma(0)\,e^{-j2\beta l}');
+        infoSteps.add(r'\angle\Gamma_{init}=' + outputNum(angInit, precision: 4) + r'\ \text{rad},\quad \angle\Gamma_{tar}=' +
+            outputNum(angTar, precision: 4) + r'\ \text{rad}');
+        infoSteps.add(r'd=\frac{\angle\Gamma_{init}-\angle\Gamma_{tar}}{4\pi}\lambda=' +
+            outputNum(dLambda, precision: 4) + r'\lambda=' + outputNum(dMm, precision: 2) + r'\;\mathrm{mm}');
+        infoSteps.add(r'\text{Equivalent solutions repeat every } \lambda/2.');
+
+        final List<SmithPath> paths = [
+          SmithPath(
+            startGamma: gammaInit,
+            endGamma: gammaTar,
+            type: PathType.transmissionLine,
+            label: "Line d",
+          ),
+        ];
+
+        final StubSolution tlOnlySolution = StubSolution(
+          title: "Transmission Line Only",
+          stubType: "None",
+          dLengthMm: dMm,
+          dLengthLambda: dLambda,
+          stubLengthMm: 0,
+          stubLengthLambda: 0,
+          steps: infoSteps,
+          paths: paths,
+        );
+
+        return StubMatchingResult(solutions: [tlOnlySolution], commonSteps: commonSteps);
+      }
     }
 
     // ================= [NEW 2] 鲁棒性保护：纯虚部输入 (Pure Reactance) =================
@@ -84,7 +146,10 @@ class SingleStubMatchingCalculator {
       StubSolution errorSolution = StubSolution(
         title: "Infeasible Case",
         stubType: "Error",
-        dLengthMm: 0, dLengthLambda: 0, stubLengthMm: 0, stubLengthLambda: 0,
+        dLengthMm: 0,
+        dLengthLambda: 0,
+        stubLengthMm: 0,
+        stubLengthLambda: 0,
         steps: errorSteps,
         paths: [],
       );
@@ -140,7 +205,7 @@ class SingleStubMatchingCalculator {
       Complex zMidRaw = gammaToZ(gammaMidRaw, z0);
       Complex yMidRaw = Complex(z0, 0) / zMidRaw;
       Complex yMid = Complex(gTarget, yMidRaw.imaginary); // 强制校准实部
-      Complex gammaMid = zToGamma(Complex(z0,0)/yMid, z0); // 反算精准 Gamma
+      Complex gammaMid = zToGamma(Complex(z0, 0) / yMid, z0); // 反算精准 Gamma
 
       // --- 3.3 计算 Stub B ---
       Complex yDiff = yL - yMid;
@@ -160,24 +225,49 @@ class SingleStubMatchingCalculator {
       }
 
       _addSolution(
-          solutions, ++solutionCount, "Short",
-          dLambda, dMm, lLambdaShort, lLambdaShort * lambdaMm,
-          gammaS, gammaMid, zL, z0, gTarget, yMid, bStub, lambdaMm
+        solutions,
+        ++solutionCount,
+        "Short",
+        dLambda,
+        dMm,
+        lLambdaShort,
+        lLambdaShort * lambdaMm,
+        gammaS,
+        gammaMid,
+        zL,
+        z0,
+        gTarget,
+        yMid,
+        bStub,
+        lambdaMm,
       );
 
       // === Case B: Open Stub (开路支节) ===
       // tan(beta l) = b
       double lLambdaOpen = 0.0;
-      if (bStub.abs() > 1e-6) { // b=0 => open circuit => l=0 (no stub needed)
+      if (bStub.abs() > 1e-6) {
+        // b=0 => open circuit => l=0 (no stub needed)
         double theta = atan(bStub);
         if (theta < 0) theta += pi;
         lLambdaOpen = theta / (2 * pi);
       }
 
       _addSolution(
-          solutions, ++solutionCount, "Open",
-          dLambda, dMm, lLambdaOpen, lLambdaOpen * lambdaMm,
-          gammaS, gammaMid, zL, z0, gTarget, yMid, bStub, lambdaMm
+        solutions,
+        ++solutionCount,
+        "Open",
+        dLambda,
+        dMm,
+        lLambdaOpen,
+        lLambdaOpen * lambdaMm,
+        gammaS,
+        gammaMid,
+        zL,
+        z0,
+        gTarget,
+        yMid,
+        bStub,
+        lambdaMm,
       );
     }
 
@@ -189,10 +279,18 @@ class SingleStubMatchingCalculator {
       List<StubSolution> solutions,
       int index,
       String type,
-      double dLambda, double dMm,
-      double lLambda, double lMm,
-      Complex gammaS, Complex gammaMid, Complex zL, double z0,
-      double gTarget, Complex yMid, double bStub, double lambdaMm
+      double dLambda,
+      double dMm,
+      double lLambda,
+      double lMm,
+      Complex gammaS,
+      Complex gammaMid,
+      Complex zL,
+      double z0,
+      double gTarget,
+      Complex yMid,
+      double bStub,
+      double lambdaMm,
       ) {
     List<String> steps = [];
     steps.add(r'\textbf{Solution ' + '$index' + r' (' + type + r' Stub):}');
@@ -213,38 +311,44 @@ class SingleStubMatchingCalculator {
     steps.add(r'l = ' + outputNum(lLambda, precision: 4) + r'\lambda = ' + outputNum(lMm, precision: 2) + r'\;\mathrm{mm}');
 
     List<SmithPath> paths = [];
-    paths.add(SmithPath(
-      startGamma: gammaS,
-      endGamma: gammaMid,
-      type: PathType.transmissionLine,
-      label: "Line d",
-    ));
-    paths.add(SmithPath(
-      startGamma: gammaMid,
-      endGamma: zToGamma(zL, z0),
-      type: PathType.shunt,
-      label: "Stub ($type)",
-    ));
+    paths.add(
+      SmithPath(
+        startGamma: gammaS,
+        endGamma: gammaMid,
+        type: PathType.transmissionLine,
+        label: "Line d",
+      ),
+    );
+    paths.add(
+      SmithPath(
+        startGamma: gammaMid,
+        endGamma: zToGamma(zL, z0),
+        type: PathType.shunt,
+        label: "Stub ($type)",
+      ),
+    );
 
-    solutions.add(StubSolution(
-      title: "Sol $index ($type)",
-      stubType: type,
-      dLengthMm: dMm,
-      dLengthLambda: dLambda,
-      stubLengthMm: lMm,
-      stubLengthLambda: lLambda,
-      steps: steps,
-      paths: paths,
-    ));
+    solutions.add(
+      StubSolution(
+        title: "Sol $index ($type)",
+        stubType: type,
+        dLengthMm: dMm,
+        dLengthLambda: dLambda,
+        stubLengthMm: lMm,
+        stubLengthLambda: lLambda,
+        steps: steps,
+        paths: paths,
+      ),
+    );
   }
 
   static Complex zToGamma(Complex z, double z0) {
-    if (z.abs() > 1e9) return Complex(1,0);
+    if (z.abs() > 1e9) return Complex(1, 0);
     return (z - Complex(z0, 0)) / (z + Complex(z0, 0));
   }
 
   static Complex gammaToZ(Complex gamma, double z0) {
-    if ((Complex(1,0)-gamma).abs() < 1e-9) return Complex(1e9, 0);
+    if ((Complex(1, 0) - gamma).abs() < 1e-9) return Complex(1e9, 0);
     return (Complex(1, 0) + gamma) / (Complex(1, 0) - gamma) * Complex(z0, 0);
   }
 }

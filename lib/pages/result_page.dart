@@ -43,6 +43,7 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
     }
     return Complex(widget.data.z0, 0); // Fallback
   }
+
   // ================== Input Summary (shown on result page) ==================
   Widget _buildInputSummaryCard(ImpedanceData data) {
     final Complex zInit = _getZValue(false);
@@ -126,7 +127,7 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
       // Normalize 10^{08} -> 10^{8}, 10^{-03} -> 10^{-3}
       return s.replaceAllMapped(
         RegExp(r'10\^\{(-?)0*([0-9]+)\}'),
-        (m) => '10^{${m.group(1) ?? ''}${m.group(2)}}',
+            (m) => '10^{${m.group(1) ?? ''}${m.group(2)}}',
       );
     }
 
@@ -215,7 +216,6 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
       ),
     );
   }
-
 
   // L-Matching Component Value Display Helper
   Widget latexComponentEntry(String key, double value) {
@@ -457,7 +457,6 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
     );
   }
 
-
   // ================== Pi-Matching View ==================
   Widget _buildPiMatchView(PiMatchingResult result, ImpedanceData data) {
     String zInitStr = data.zInitial != null ? "Zinit = ${outputNum(data.zInitial!)}Ω" : "Source";
@@ -530,6 +529,7 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
   // ================== Single Stub View ==================
   Widget _buildSingleStubView(StubSolution solution, List<String> commonSteps, ImpedanceData data) {
     String mode = (data.zInitial != null) ? 'Z' : 'Gamma';
+    final bool tlOnly = solution.stubType == 'None';
 
     return Padding(
       padding: EdgeInsets.all(16),
@@ -541,7 +541,7 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
             children: [
               Icon(Icons.electrical_services, color: Colors.blue[800]),
               SizedBox(width: 8),
-              Text('${solution.title}: ${solution.stubType} Stub',
+              Text(tlOnly ? solution.title : '${solution.title}: ${solution.stubType} Stub',
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blue[900])),
             ],
           ),
@@ -584,7 +584,7 @@ class _ResultPageState extends State<ResultPage> with TickerProviderStateMixin {
 
           Text("Physical Dimensions:", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           latexDimensionEntry("d", solution.dLengthMm),
-          latexDimensionEntry("l", solution.stubLengthMm),
+          if (!tlOnly) latexDimensionEntry("l", solution.stubLengthMm),
 
           Divider(),
           SizedBox(height: 12),

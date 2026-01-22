@@ -172,13 +172,54 @@ class LMatchCircuitPainter extends CustomPainter {
     _drawPort(canvas, Offset(endX, midY), "Z_tar");
 
     if (topology == LTopologyType.seriesFirst) {
-      _drawComponentSeries(canvas, paint, Offset(startX, midY), Offset(slot2X, midY), seriesType, seriesLabel);
-      _drawComponentShunt(canvas, paint, Offset(slot2X, midY), gndY, shuntType, shuntLabel);
+      // start -> (series) -> slot2 -> end
+      _drawComponentSeries(
+        canvas,
+        paint,
+        Offset(startX, midY),
+        Offset(slot2X, midY),
+        seriesType,
+        seriesLabel,
+      );
+
+      // 只有存在 shunt 元件时才画到地
+      if (shuntType != ComponentType.none) {
+        _drawComponentShunt(
+          canvas,
+          paint,
+          Offset(slot2X, midY),
+          gndY,
+          shuntType,
+          shuntLabel,
+        );
+      }
+
       canvas.drawLine(Offset(slot2X, midY), Offset(endX, midY), paint);
     } else {
+      // start -> slot1
       canvas.drawLine(Offset(startX, midY), Offset(slot1X, midY), paint);
-      _drawComponentShunt(canvas, paint, Offset(slot1X, midY), gndY, shuntType, shuntLabel);
-      _drawComponentSeries(canvas, paint, Offset(slot1X, midY), Offset(endX, midY), seriesType, seriesLabel);
+
+      // 只有存在 shunt 元件时才画到地
+      if (shuntType != ComponentType.none) {
+        _drawComponentShunt(
+          canvas,
+          paint,
+          Offset(slot1X, midY),
+          gndY,
+          shuntType,
+          shuntLabel,
+        );
+      }
+
+      // slot1 -> (series) -> end
+      _drawComponentSeries(
+        canvas,
+        paint,
+        Offset(slot1X, midY),
+        Offset(endX, midY),
+        seriesType,
+        seriesLabel,
+      );
     }
   }
 
