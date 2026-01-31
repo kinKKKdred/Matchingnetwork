@@ -105,7 +105,7 @@ class _HomePageState extends State<HomePage> {
     // Default: Z0 = 50Ω, f = 2.45 GHz. You can edit these examples here.
     return [
       _TestExample(
-        name: 'Example 1: (25+15j) → (75−10j) Ω (General Case)',
+        name: 'Example 1: (30+40j) → (50−0j) Ω (General Case)',
         frequencyText: '2.45e9',
         z0Text: '50',
         zInitial: Complex(30, 40),
@@ -138,6 +138,48 @@ class _HomePageState extends State<HomePage> {
         z0Text: '50',
         zInitial: Complex(10, 0),
         zTarget: Complex(10, 0),
+      ),
+      _TestExample(
+        name: 'Example 6:(Example 4-7 output-gain) Γintial=0 →Γtarget=0.51∠(-4.77°)',
+        frequencyText: '3e9',
+        z0Text: '50',
+        zInitial: Complex(50, 0),
+        zTarget: Complex(151.8474, -17.4072),
+      ),
+      _TestExample(
+        name: 'Example 7:(Example 4-7 input-gain) Γintial=0 →Γtarget=0.704∠(174°)',
+        frequencyText: '3e9',
+        z0Text: '50',
+        zInitial: Complex(50, 0),
+        zTarget: Complex(8.7086, 2.5411),
+      ),
+      _TestExample(
+        name: 'Example 8:(Example 4-8 output-gain) Γintial=0 →Γtarget=0.45∠(30°)',
+        frequencyText: '9e9',
+        z0Text: '50',
+        zInitial: Complex(50, 0),
+        zTarget: Complex(94.2500, 53.1818),
+      ),
+      _TestExample(
+        name: 'Example 9:(Example 4-8 input-gain) Γintial=0 →Γtarget=0.55∠(150°)',
+        frequencyText: '9e9',
+        z0Text: '50',
+        zInitial: Complex(50, 0),
+        zTarget: Complex(15.4648, 12.1944),
+      ),
+      _TestExample(
+        name: 'Example 10:(Example 4-9 output-gain) Γintial=0 →Γtarget=0.497∠(-9.41°)',
+        frequencyText: '1e9',
+        z0Text: '50',
+        zInitial: Complex(50, 0),
+        zTarget: Complex(141.3353, -30.5042),
+      ),
+      _TestExample(
+        name: 'Example 11:(Example 4-9 input-gain) Γintial=0 →Γtarget=0.221∠(-172.3°)',
+        frequencyText: '1e9',
+        z0Text: '50',
+        zInitial: Complex(50, 0),
+        zTarget: Complex(31.9856, -1.9915),
       ),
     ];
   }
