@@ -139,15 +139,26 @@ class SmithChart extends StatelessWidget {
     );
   }
 
-  Widget _legendRow({required Color color, required String title, required String detail}) {
+  Widget _legendRow({
+    required Color color,
+    required String title,
+    required String detail,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
           const SizedBox(width: 8),
-          Text("$title: ", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          Text(
+            "$title: ",
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+          ),
           Flexible(child: Text(detail, style: const TextStyle(fontSize: 12))),
         ],
       ),
@@ -158,7 +169,14 @@ class SmithChart extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(width: 24, height: 4, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2))),
+        Container(
+          width: 24,
+          height: 4,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
         const SizedBox(width: 6),
         Text(label, style: const TextStyle(fontSize: 12)),
       ],
@@ -207,7 +225,8 @@ class SmithChartPainter extends CustomPainter {
     final double scale = radius;
 
     // Clip to circle
-    Path clipPath = Path()..addOval(Rect.fromCircle(center: center, radius: scale));
+    Path clipPath = Path()
+      ..addOval(Rect.fromCircle(center: center, radius: scale));
     canvas.save();
     canvas.clipPath(clipPath);
 
@@ -230,7 +249,9 @@ class SmithChartPainter extends CustomPainter {
     canvas.drawCircle(
       center,
       scale,
-      Paint()..style = PaintingStyle.stroke..color = Colors.black,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..color = Colors.black,
     );
 
     _drawAxisLabels(canvas, center, scale);
@@ -248,12 +269,18 @@ class SmithChartPainter extends CustomPainter {
     );
   }
 
-
-
   void _drawGrid(Canvas canvas, Offset center, double scale) {
-    final Paint rPaint = Paint()..style = PaintingStyle.stroke..color = colorRes..strokeWidth = 1.0;
-    final Paint xPaint = Paint()..style = PaintingStyle.stroke..color = colorReact..strokeWidth = 1.0;
-    final Paint axisPaint = Paint()..color = Colors.grey[400]!..strokeWidth = 1.0;
+    final Paint rPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..color = colorRes
+      ..strokeWidth = 1.0;
+    final Paint xPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..color = colorReact
+      ..strokeWidth = 1.0;
+    final Paint axisPaint = Paint()
+      ..color = Colors.grey[400]!
+      ..strokeWidth = 1.0;
 
     canvas.drawLine(center + Offset(-scale, 0), center + Offset(scale, 0), axisPaint);
     for (double r in rCircles) {
@@ -310,7 +337,7 @@ class SmithChartPainter extends CustomPainter {
     _drawDashedPath(canvas, p, paint, dash: dash, gap: gap);
   }
 
-  // ---------- 关键点引导线（等r圆 + 等x线）+ 数值标注 ----------
+  // ---------- 关键点引导线（等r圆 + 等x线 + 等g圆 + 等b线）+ 数值标注 ----------
   void _drawKeyPointImpedanceGuides(
       Canvas canvas,
       Offset center,
@@ -376,8 +403,28 @@ class SmithChartPainter extends CustomPainter {
     final double r = z.real;
     final double x = z.imaginary;
 
+    // 归一化导纳 y = 1/z = g + jb（用实数公式更稳）
+    final double denom = r * r + x * x;
+    double gVal = double.infinity;
+    double bVal = double.infinity;
+    if (denom > 1e-12) {
+      gVal = r / denom;
+      bVal = -x / denom;
+    }
+
     if (drawGuideLines) {
-      // 1) 等电阻圆（constant r circle）：圆心 (r/(1+r),0)，半径 1/(1+r)
+      // ===== 方案B：g/b 的引导虚线使用导纳网格颜色（绿/紫）=====
+      final Paint gGuidePaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..color = Colors.greenAccent.withOpacity(0.75)
+        ..strokeWidth = paint.strokeWidth;
+
+      final Paint bGuidePaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..color = Colors.purpleAccent.withOpacity(0.75)
+        ..strokeWidth = paint.strokeWidth;
+
+      // 1) 等电阻圆（constant r circle）——用 initial/target 的颜色 paint
       if (r > -0.999) {
         final double cx = r / (1 + r);
         final double cr = 1 / (1 + r);
@@ -385,7 +432,7 @@ class SmithChartPainter extends CustomPainter {
         _drawDashedCircle(canvas, cc, cr * scale, paint);
       }
 
-      // 2) 等电抗线（constant x arc）：圆心 (1, 1/x)，半径 1/|x|
+      // 2) 等电抗圆（constant x circle）——用 initial/target 的颜色 paint
       if (x.abs() > 1e-3) {
         final double u = 1.0;
         final double v = 1 / x;             // 带符号
@@ -393,15 +440,42 @@ class SmithChartPainter extends CustomPainter {
         final Offset cc = _gammaToOffset(Complex(u, v), center, scale);
         _drawDashedCircle(canvas, cc, radius * scale, paint);
       }
+
+      // 3) 等电导圆（constant g circle）——用绿色 gGuidePaint
+      // 圆心 (-g/(1+g),0)，半径 1/(1+g)
+      // g=0 对应外圆；g=∞ 退化不画
+      if (gVal.isFinite && gVal.abs() > 1e-3 && gVal > -0.999) {
+        final double cxg = -gVal / (1 + gVal);
+        final double crg = 1 / (1 + gVal);
+        final Offset ccg = _gammaToOffset(Complex(cxg, 0), center, scale);
+        _drawDashedCircle(canvas, ccg, crg * scale, gGuidePaint);
+      }
+
+      // 4) 等电纳圆（constant b circle）——用紫色 bGuidePaint
+      // 圆心 (-1, 1/b)，半径 1/|b|
+      if (bVal.isFinite && bVal.abs() > 1e-3) {
+        final double u = -1.0;
+        final double v = -1 / bVal;            // 带符号
+        final double radius = 1 / bVal.abs(); // 半径为正
+        final Offset cc = _gammaToOffset(Complex(u, v), center, scale);
+        _drawDashedCircle(canvas, cc, radius * scale, bGuidePaint);
+      }
     }
 
     if (!drawLabels) return;
 
-    // 3) 数值标注：在点旁标 r/x（归一化值，与网格一致）
+    // ===== 标签（r/x + g/b）=====
     final Offset p = _gammaToOffset(gamma, center, scale);
-    final String txt = "$label  r=${r.toStringAsFixed(2)}, x=${x.toStringAsFixed(2)}";
 
-    // 简单避让：如果点在下半圈且靠近底部，标签强制往上放，减少与图例挤压
+    String _fmt(double v) {
+      if (v.isInfinite || v.abs() > 999) return "∞";
+      return v.toStringAsFixed(2);
+    }
+
+    final String txt =
+        "$label  r=${_fmt(r)}, x=${_fmt(x)}\n"
+        "        g=${_fmt(gVal)}, b=${_fmt(bVal)}";
+
     double dy = (gamma.imaginary >= 0) ? -18 : 18;
     if (p.dy > center.dy + scale * 0.55) {
       dy = -24;
@@ -409,7 +483,6 @@ class SmithChartPainter extends CustomPainter {
       dy = 24;
     }
 
-    // 向右偏一点，避免压到点和轨迹（你也可以改 65/70 来微调）
     final Offset pos = p + Offset(70, dy);
 
     _drawText(
@@ -417,7 +490,7 @@ class SmithChartPainter extends CustomPainter {
       txt,
       pos,
       style: TextStyle(
-        color: labelColor,
+        color: labelColor, // 仍然保持 initial/target 自己的颜色
         fontSize: 11,
         fontWeight: FontWeight.w700,
         backgroundColor: Colors.white.withOpacity(0.55),
@@ -455,8 +528,8 @@ class SmithChartPainter extends CustomPainter {
 
     // 等电纳线（b arcs）
     for (double b in xArcs) {
-      _drawArcCircle(canvas, center, scale, -1.0, 1 / b, 1 / b, bPaint);
       _drawArcCircle(canvas, center, scale, -1.0, -1 / b, 1 / b, bPaint);
+      _drawArcCircle(canvas, center, scale, -1.0,  1 / b, 1 / b, bPaint);
     }
   }
 
@@ -528,7 +601,8 @@ class SmithChartPainter extends CustomPainter {
       for (int i = 0; i <= steps; i++) {
         double t = i / steps;
         double x = xStart + (xEnd - xStart) * t;
-        points.add(_gammaToOffset(_zToGamma_Normalized(Complex(rConst, x)), center, scale));
+        points.add(_gammaToOffset(
+            _zToGamma_Normalized(Complex(rConst, x)), center, scale));
       }
     } else {
       // Shunt：在导纳平面插值
@@ -586,7 +660,8 @@ class SmithChartPainter extends CustomPainter {
     return (Complex(1, 0) + gamma) / (Complex(1, 0) - gamma);
   }
 
-  void _drawArcCircle(Canvas canvas, Offset center, double scale, double u, double v, double r, Paint paint) {
+  void _drawArcCircle(Canvas canvas, Offset center, double scale, double u,
+      double v, double r, Paint paint) {
     Offset circleCenter = _gammaToOffset(Complex(u, v), center, scale);
     canvas.drawCircle(circleCenter, r * scale, paint);
   }
@@ -603,7 +678,8 @@ class SmithChartPainter extends CustomPainter {
       canvas.drawCircle(_gammaToOffset(gamma, center, scale), 4.5, p);
     } else if (paths.isNotEmpty) {
       p.color = Colors.green;
-      canvas.drawCircle(_gammaToOffset(paths.first.startGamma, center, scale), 4.5, p);
+      canvas.drawCircle(_gammaToOffset(paths.first.startGamma, center, scale),
+          4.5, p);
     }
 
     // 2. 绘制 终点 (红色)
@@ -614,13 +690,15 @@ class SmithChartPainter extends CustomPainter {
       canvas.drawCircle(_gammaToOffset(gammaT, center, scale), 4.5, p);
     } else if (paths.isNotEmpty) {
       p.color = Colors.red;
-      canvas.drawCircle(_gammaToOffset(paths.last.endGamma, center, scale), 4.5, p);
+      canvas.drawCircle(_gammaToOffset(paths.last.endGamma, center, scale),
+          4.5, p);
     }
 
     // 3. 绘制 中间点 (黑)
     if (paths.length >= 2) {
       p.color = Colors.black54;
-      canvas.drawCircle(_gammaToOffset(paths.first.endGamma, center, scale), 4.5, p);
+      canvas.drawCircle(_gammaToOffset(paths.first.endGamma, center, scale),
+          4.5, p);
     }
   }
 
@@ -641,7 +719,8 @@ class SmithChartPainter extends CustomPainter {
       if (r == 0) continue;
       double u = (r - 1) / (r + 1);
       if (u.abs() > 0.95) continue;
-      _drawText(canvas, r.toString(), center + Offset(u * scale, -6), style: rStyle);
+      _drawText(canvas, r.toString(), center + Offset(u * scale, -6),
+          style: rStyle);
     }
 
     // ===== 阻抗网格标注：x（蓝） =====
@@ -676,7 +755,8 @@ class SmithChartPainter extends CustomPainter {
         if (g == 0) continue;
         double u = (1 - g) / (1 + g);
         if (u.abs() > 0.95) continue;
-        _drawText(canvas, g.toString(), center + Offset(u * scale, 10), style: gStyle);
+        _drawText(canvas, g.toString(), center + Offset(u * scale, 10),
+            style: gStyle);
       }
 
       final bStyle = TextStyle(
@@ -715,7 +795,10 @@ class SmithChartPainter extends CustomPainter {
   }
 
   void _drawActiveCircles(Canvas canvas, Offset center, double scale) {
-    final Paint paint = Paint()..style = PaintingStyle.stroke..color = Colors.black54..strokeWidth = 0.5;
+    final Paint paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..color = Colors.black54
+      ..strokeWidth = 0.5;
 
     for (var path in paths) {
       if (path.type == PathType.transmissionLine) {
@@ -738,7 +821,10 @@ class SmithChartPainter extends CustomPainter {
   }
 
   void _drawText(Canvas canvas, String text, Offset pos, {TextStyle? style}) {
-    final textSpan = TextSpan(text: text, style: style ?? const TextStyle(fontSize: 10, color: Colors.black));
+    final textSpan = TextSpan(
+      text: text,
+      style: style ?? const TextStyle(fontSize: 10, color: Colors.black),
+    );
     final tp = TextPainter(text: textSpan, textDirection: TextDirection.ltr);
     tp.layout();
     tp.paint(canvas, pos - Offset(tp.width / 2, tp.height / 2));
