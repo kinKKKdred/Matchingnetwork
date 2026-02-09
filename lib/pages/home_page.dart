@@ -24,30 +24,37 @@ class _HomePageState extends State<HomePage> {
   // NOTE: This project matches Z_initial -> Z_target (not necessarily to the Smith chart center).
   late final List<_TestExample> _testExamples;
   int _exampleIndex = 0;
+
   //输入板块：Zinitial，Ztarget及其实部虚部
   final zInitialReController = TextEditingController(text: "30.0");
   final zInitialImController = TextEditingController(text: "40.0");
   final zTargetReController = TextEditingController(text: "50.0");
   final zTargetImController = TextEditingController(text: "-20.0");
+
   //输入板块，Γinitial，Γtarget及其实部虚部
   final gammaInitialReController = TextEditingController();
   final gammaInitialImController = TextEditingController();
   final gammaTargetReController = TextEditingController();
   final gammaTargetImController = TextEditingController();
+
   //输入板块：Γinitial，Γtarget的幅度和角度输入模式
   final gammaInitialMagController = TextEditingController();
   final gammaInitialAngleController = TextEditingController();
   final gammaTargetMagController = TextEditingController();
   final gammaTargetAngleController = TextEditingController();
+
   //输入板块：频率f和特征阻抗Z0
   final fController = TextEditingController(text: "1e8");
   final z0Controller = TextEditingController(text: "50");
+
   //输入模式选择：Z输入，Γ输入
   InputMode _inputMode = InputMode.impedance;
   GammaFormat _gammaFormat = GammaFormat.rectangular;
+
   //Γ输入的状态选择，Polar和Rectangular
   bool _angleInDegree = true;
   bool _isSyncing = false;
+
   //匹配方式选择
   MatchMethod _currentMethod = MatchMethod.lMatching;
 
@@ -140,42 +147,49 @@ class _HomePageState extends State<HomePage> {
         zTarget: Complex(10, 0),
       ),
       _TestExample(
-        name: 'Example 6:(Example 4-7 output-gain) Γintial=0 →Γtarget=0.51∠(-4.77°)',
+        name: 'Example 6: (Example 3-1 Zln → Zsn*',
+        frequencyText: '2.45e9',
+        z0Text: '1',
+        zInitial: Complex(0.2, -0.2),
+        zTarget: Complex(1.5, -1),
+      ),
+      _TestExample(
+        name: 'Example 7:(Example 4-7 output-gain) Γintial=0 →Γtarget=0.51∠(-4.77°)',
         frequencyText: '3e9',
         z0Text: '50',
         zInitial: Complex(50, 0),
         zTarget: Complex(151.8474, -17.4072),
       ),
       _TestExample(
-        name: 'Example 7:(Example 4-7 input-gain) Γintial=0 →Γtarget=0.704∠(174°)',
+        name: 'Example 8:(Example 4-7 input-gain) Γintial=0 →Γtarget=0.704∠(174°)',
         frequencyText: '3e9',
         z0Text: '50',
         zInitial: Complex(50, 0),
         zTarget: Complex(8.7086, 2.5411),
       ),
       _TestExample(
-        name: 'Example 8:(Example 4-8 output-gain) Γintial=0 →Γtarget=0.45∠(30°)',
+        name: 'Example 9:(Example 4-8 output-gain) Γintial=0 →Γtarget=0.45∠(30°)',
         frequencyText: '9e9',
         z0Text: '50',
         zInitial: Complex(50, 0),
         zTarget: Complex(94.2500, 53.1818),
       ),
       _TestExample(
-        name: 'Example 9:(Example 4-8 input-gain) Γintial=0 →Γtarget=0.55∠(150°)',
+        name: 'Example 10:(Example 4-8 input-gain) Γintial=0 →Γtarget=0.55∠(150°)',
         frequencyText: '9e9',
         z0Text: '50',
         zInitial: Complex(50, 0),
         zTarget: Complex(15.4648, 12.1944),
       ),
       _TestExample(
-        name: 'Example 10:(Example 4-9 output-gain) Γintial=0 →Γtarget=0.497∠(-9.41°)',
+        name: 'Example 11:(Example 4-9 output-gain) Γintial=0 →Γtarget=0.497∠(-9.41°)',
         frequencyText: '1e9',
         z0Text: '50',
         zInitial: Complex(50, 0),
         zTarget: Complex(141.3353, -30.5042),
       ),
       _TestExample(
-        name: 'Example 11:(Example 4-9 input-gain) Γintial=0 →Γtarget=0.221∠(-172.3°)',
+        name: 'Example 12:(Example 4-9 input-gain) Γintial=0 →Γtarget=0.221∠(-172.3°)',
         frequencyText: '1e9',
         z0Text: '50',
         zInitial: Complex(50, 0),
@@ -185,8 +199,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _applyTestExample(int index, {bool sync = true}) {
-    final int idx = index % _testExamples.length;
+    final int len = _testExamples.length;
+    // 兼容负数 index 的循环取模（Previous 时需要）
+    final int idx = ((index % len) + len) % len;
     final ex = _testExamples[idx];
+
     setState(() {
       _exampleIndex = idx;
       // System parameters
@@ -198,6 +215,7 @@ class _HomePageState extends State<HomePage> {
       zTargetReController.text = _prettyNum(ex.zTarget.real);
       zTargetImController.text = _prettyNum(ex.zTarget.imaginary);
     });
+
     if (sync) {
       _syncFromZInputFields();
     }
@@ -227,7 +245,6 @@ class _HomePageState extends State<HomePage> {
       var polar2 = rectToPolar(gamma2, inDegree: _angleInDegree);
       gammaTargetMagController.text = polar2[0].toStringAsFixed(4);
       gammaTargetAngleController.text = polar2[1].toStringAsFixed(4);
-
     }
     //finally确保解锁
     finally {
@@ -263,6 +280,7 @@ class _HomePageState extends State<HomePage> {
       _isSyncing = false;
     }
   }
+
   //Γ极坐标输入到Z输入的实时转换
   void _syncFromGammaPolar() {
     if (_isSyncing) return;
@@ -281,6 +299,7 @@ class _HomePageState extends State<HomePage> {
       //Z填入
       zInitialReController.text = z.real.toStringAsFixed(4);
       zInitialImController.text = z.imaginary.toStringAsFixed(4);
+
       //同上操作
       double mag2 = double.tryParse(gammaTargetMagController.text) ?? 0;
       double ang2 = double.tryParse(gammaTargetAngleController.text) ?? 0;
@@ -368,7 +387,6 @@ class _HomePageState extends State<HomePage> {
     //表单校验，防止出现空值
     if (_formKey.currentState!.validate()) {
       try {
-
         ImpedanceData impedanceData;
         //如果是 Z 模式（阻抗输入）
         if (_inputMode == InputMode.impedance) {
@@ -391,13 +409,15 @@ class _HomePageState extends State<HomePage> {
           //若是极坐标
           else {
             gammaInitial = polarToComplex(
-                double.tryParse(gammaInitialMagController.text) ?? 0,
-                double.tryParse(gammaInitialAngleController.text) ?? 0,
-                inDegree: _angleInDegree);
+              double.tryParse(gammaInitialMagController.text) ?? 0,
+              double.tryParse(gammaInitialAngleController.text) ?? 0,
+              inDegree: _angleInDegree,
+            );
             gammaTarget = polarToComplex(
-                double.tryParse(gammaTargetMagController.text) ?? 0,
-                double.tryParse(gammaTargetAngleController.text) ?? 0,
-                inDegree: _angleInDegree);
+              double.tryParse(gammaTargetMagController.text) ?? 0,
+              double.tryParse(gammaTargetAngleController.text) ?? 0,
+              inDegree: _angleInDegree,
+            );
           }
           impedanceData = ImpedanceData(
             zInitial: null,
@@ -408,6 +428,7 @@ class _HomePageState extends State<HomePage> {
             gammaTarget: gammaTarget,
           );
         }
+
         //选择匹配模式
         String matchType = _currentMethod == MatchMethod.lMatching
             ? 'L-matching'
@@ -416,6 +437,7 @@ class _HomePageState extends State<HomePage> {
             : _currentMethod == MatchMethod.piMatching
             ? 'Pi-matching'
             : 'T-matching';
+
         //页面跳转：进入 ResultPage 执行计算与展示
         Navigator.push(
           context,
@@ -430,7 +452,8 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
         );
-      } catch (e) { //如果用户输入有问题，提示输入出现错误
+      } catch (e) {
+        //如果用户输入有问题，提示输入出现错误
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Invalid input format. Please check your values!')),
         );
@@ -477,9 +500,21 @@ class _HomePageState extends State<HomePage> {
                 _buildGammaFormatSelector(),
                 SizedBox(height: 12),
                 if (_gammaFormat == GammaFormat.rectangular) ...[
-                  _buildImpedanceInputCard("Initial Reflection coefficient", gammaInitialReController, gammaInitialImController, Colors.green, isGamma: true),
+                  _buildImpedanceInputCard(
+                    "Initial Reflection coefficient",
+                    gammaInitialReController,
+                    gammaInitialImController,
+                    Colors.green,
+                    isGamma: true,
+                  ),
                   SizedBox(height: 12),
-                  _buildImpedanceInputCard("Target Reflection coefficient", gammaTargetReController, gammaTargetImController, Colors.redAccent, isGamma: true),
+                  _buildImpedanceInputCard(
+                    "Target Reflection coefficient",
+                    gammaTargetReController,
+                    gammaTargetImController,
+                    Colors.redAccent,
+                    isGamma: true,
+                  ),
                 ] else ...[
                   _buildGammaPolarCard("Initial Reflection coefficient", gammaInitialMagController, gammaInitialAngleController, Colors.green),
                   SizedBox(height: 12),
@@ -569,11 +604,10 @@ class _HomePageState extends State<HomePage> {
               _stubMode == StubMode.single
                   ? 'One shunt stub is used.'
                   : (_stubMode == StubMode.balanced
-                      ? 'Two identical shunt stubs in parallel (balanced implementation).'
-                      : 'Two shunt stubs separated by a fixed spacing s (double-stub).'),
+                  ? 'Two identical shunt stubs in parallel (balanced implementation).'
+                  : 'Two shunt stubs separated by a fixed spacing s (double-stub).'),
               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
-
             if (_stubMode == StubMode.double) ...[
               const SizedBox(height: 12),
               Text(
@@ -612,6 +646,7 @@ class _HomePageState extends State<HomePage> {
     // In case the widget is built before initState finishes (rare), guard against null/empty.
     if (_testExamples.isEmpty) return SizedBox.shrink();
     final ex = _testExamples[_exampleIndex];
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -637,23 +672,42 @@ class _HomePageState extends State<HomePage> {
                   ),
                   SizedBox(height: 4),
                   Text(
-                    'Click NEXT EXAMPLE to auto-fill Initial/Target (and sync Γ).',
+                    'Click PREVIOUS/NEXT to auto-fill Initial/Target (and sync Γ).',
                     style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                   ),
                 ],
               ),
             ),
             SizedBox(width: 12),
-            ElevatedButton.icon(
-              onPressed: () => _applyTestExample(_exampleIndex + 1, sync: true),
-              icon: Icon(Icons.navigate_next, color: Colors.white),
-              label: Text('NEXT EXAMPLE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.black87,
-                padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                elevation: 2,
-              ),
+
+            // 两个按钮并排，且自动换行避免窄屏溢出
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () => _applyTestExample(_exampleIndex - 1, sync: true),
+                  icon: Icon(Icons.navigate_before, color: Colors.white),
+                  label: Text('PREVIOUS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey[700],
+                    padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    elevation: 2,
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => _applyTestExample(_exampleIndex + 1, sync: true),
+                  icon: Icon(Icons.navigate_next, color: Colors.white),
+                  label: Text('NEXT', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.black87,
+                    padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    elevation: 2,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -685,7 +739,11 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [Icon(Icons.settings, size: 18, color: Colors.grey), SizedBox(width: 8), Text("System Parameters", style: TextStyle(fontWeight: FontWeight.bold))]),
+            Row(children: [
+              Icon(Icons.settings, size: 18, color: Colors.grey),
+              SizedBox(width: 8),
+              Text("System Parameters", style: TextStyle(fontWeight: FontWeight.bold))
+            ]),
             Divider(height: 24),
             Row(
               children: [
@@ -694,13 +752,19 @@ class _HomePageState extends State<HomePage> {
                 ),
                 SizedBox(width: 16),
                 Expanded(
-                  child: _buildSimpleTextField(z0Controller, "Z0", "Ω", icon: Icons.linear_scale, onChanged: (v) {
-                    setState(() {
-                      if (_inputMode == InputMode.impedance) _syncFromZInputFields();
-                      else if (_gammaFormat == GammaFormat.rectangular) _syncFromGammaRectInputFields();
-                      else _syncFromGammaPolar();
-                    });
-                  }),
+                  child: _buildSimpleTextField(
+                    z0Controller,
+                    "Z0",
+                    "Ω",
+                    icon: Icons.linear_scale,
+                    onChanged: (v) {
+                      setState(() {
+                        if (_inputMode == InputMode.impedance) _syncFromZInputFields();
+                        else if (_gammaFormat == GammaFormat.rectangular) _syncFromGammaRectInputFields();
+                        else _syncFromGammaPolar();
+                      });
+                    },
+                  ),
                 ),
               ],
             ),
@@ -765,16 +829,24 @@ class _HomePageState extends State<HomePage> {
             Row(
               children: [
                 Expanded(
-                  child: _buildOutlinedTextField(reCtrl, isGamma ? "Real Part" : "Resistance (R)", isGamma ? "" : "Ω",
-                      onChanged: (v) => setState(() => isGamma ? _syncFromGammaRectInputFields() : _syncFromZInputFields())),
+                  child: _buildOutlinedTextField(
+                    reCtrl,
+                    isGamma ? "Real Part" : "Resistance (R)",
+                    isGamma ? "" : "Ω",
+                    onChanged: (v) => setState(() => isGamma ? _syncFromGammaRectInputFields() : _syncFromZInputFields()),
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12.0),
                   child: Text("+ j", style: TextStyle(fontSize: 18, fontStyle: FontStyle.italic, color: Colors.grey[600])),
                 ),
                 Expanded(
-                  child: _buildOutlinedTextField(imCtrl, isGamma ? "Imaginary Part" : "Reactance (X)", isGamma ? "" : "Ω",
-                      onChanged: (v) => setState(() => isGamma ? _syncFromGammaRectInputFields() : _syncFromZInputFields())),
+                  child: _buildOutlinedTextField(
+                    imCtrl,
+                    isGamma ? "Imaginary Part" : "Reactance (X)",
+                    isGamma ? "" : "Ω",
+                    onChanged: (v) => setState(() => isGamma ? _syncFromGammaRectInputFields() : _syncFromZInputFields()),
+                  ),
                 ),
               ],
             ),
@@ -812,13 +884,16 @@ class _HomePageState extends State<HomePage> {
             Row(
               children: [
                 Expanded(
-                  child: _buildOutlinedTextField(magCtrl, "Magnitude |Γ|", "",
-                      onChanged: (v) => setState(() => _syncFromGammaPolar())),
+                  child: _buildOutlinedTextField(magCtrl, "Magnitude |Γ|", "", onChanged: (v) => setState(() => _syncFromGammaPolar())),
                 ),
                 SizedBox(width: 16),
                 Expanded(
-                  child: _buildOutlinedTextField(angCtrl, "Angle θ", _angleInDegree ? "°" : "rad",
-                      onChanged: (v) => setState(() => _syncFromGammaPolar())),
+                  child: _buildOutlinedTextField(
+                    angCtrl,
+                    "Angle θ",
+                    _angleInDegree ? "°" : "rad",
+                    onChanged: (v) => setState(() => _syncFromGammaPolar()),
+                  ),
                 ),
               ],
             ),
